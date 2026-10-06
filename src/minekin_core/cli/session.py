@@ -1035,6 +1035,7 @@ def mind_for_run(
     kin_dir: Path | None = None,
     exclude_run_id: str = "",
     game_version: str | None = None,
+    current_server_profile_id: str = "",
 ) -> PlayerMind:
     """The mind for one run, from what this operator's environment configures.
 
@@ -1089,7 +1090,13 @@ def mind_for_run(
             {}
             if kin_dir is None
             else read_last_session(
-                kin_dir / DATABASE_NAME, kin_id=kin_id, exclude_run_id=exclude_run_id
+                kin_dir / DATABASE_NAME,
+                kin_id=kin_id,
+                exclude_run_id=exclude_run_id,
+                # Which world this run is for, so the packet can say whether the
+                # last session's was the same one. Empty means nobody said, and
+                # the comparison stays `unknown` rather than guessing.
+                current_server_profile_id=current_server_profile_id,
             )
         ),
         goal=milestone_from_environment(environ),
@@ -1801,6 +1808,8 @@ async def start_and_supervise(
             kin_dir=kin_directory(root, KinId(prepared.kin_id)),
             exclude_run_id=str(prepared.run_id),
             game_version=launched_minecraft_version(profile),
+            # The attempt's own target is the only place this run's world is named.
+            current_server_profile_id="" if target is None else target.profile_id,
         )
         # One counter across whichever ask this run carries: the ledger reader's question
         # is "which step of the sequence is this", and a scripted plan and a mind-written

@@ -1418,3 +1418,11 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 - 解析失败/读不到：仍 `unknown`。
 
 两条查询与记录行同源同纪律：`source='CORE' AND trust_class='CORE'`（伪造的 UNTRUSTED 释放行不能翻转答案——有专门测试），且只认**该 run 自己**的租约事件（另一起 run 的释放不代答——有专门测试）。测试 3 新＋1 旧钉按设计意图更新（无租约的旧夹具从 `unknown` 改判 `nothing_held`）；邻套件 199 绿；门（uv）：pyright 0/0/0、ruff 0、format 512、全仓 **4158 passed / 2 skipped**。消费面（模型 offer 的 `session_history`、run document、Gateway 只读投影按值透传）不受破坏。
+
+## 六之四十九、恢复包的名字：上次会话在哪个世界（2026-10-06，单元面交付）
+
+**交付**：`read_last_session` 的记录新增 `server_profile_id`——取自**该 run 自己**的 `AuthPolicyFrozen` 事件（同租约事实的纪律：最新一条、`source='CORE'`/`trust_class='CORE'`、payload digest 校验、值收进 profile-id 的形状 `[a-z0-9][a-z0-9._-]+`）；没冻结过策略的 run（无世界）读作空串，伪造/解析失败同样落空。调用方（`mind_for_run` 由 `on_run_skills` 传 `target.profile_id`）说得出当前 profile 时，`current_world_applicability` 给出 `same_profile`/`different_profile`；任一侧不知道就保持 `unknown`（**不猜**）。契约 §启动自我包 的"当前服务器/世界命名空间"由此从"知道上次在哪个世界"开始。
+
+**先红后绿**：2 新测试（同名/异名/未名三态；伪造的 UNTRUSTED 行不落名）＋1 旧钉按设计意图更新（无 auth 事件的夹具读作 `""`）。文件 17 绿、邻套件 232 绿；门（uv）：pyright 0/0/0、ruff 0、format 512、全仓 **4164 passed / 2 skipped**。
+
+**同批所有权观察（按实登记）**：本轮开工时发现**另一位执行者**已在 `992c92a` 之上落下并推送 `60ad043`（把我的 `input_release` 内联布尔换成 `_recorded_input_release`：digest/generation/顺序校验，"两枚控制端反例：损坏与乱序的释放行被报成 released_recorded"）。核验：其提交与我的在工改动**兼容**（同 helper 名、同语义加严），无覆盖损失；协调时 `ListAgents` **无在场会话**（对方已退出），本卡在其加严后的形状上继续（server_profile_id 走同一纪律），未改动其逻辑；在工测试改动保留、未与其提交冲突。

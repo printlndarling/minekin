@@ -75,6 +75,8 @@ def test_history_is_readonly_reopenable_and_excludes_current_run(database: Path)
         # The fixture's run never granted a lease, and the same ledger says so:
         # "unknown" was what the packet said before it read the lease events.
         "input_release": "nothing_held",
+        # ...and it never froze an auth policy either, so it has no world to name.
+        "server_profile_id": "",
     }
     assert first["freshness"] == "historical"
     assert first["current_world_applicability"] == "unknown"
@@ -82,15 +84,15 @@ def test_history_is_readonly_reopenable_and_excludes_current_run(database: Path)
     assert database.read_bytes() == before
 
 
-def input_event(
+def insert_event(
     database: Path,
     *,
     event_type: str,
     run_id: str,
+    payload: dict[str, JsonValue],
     kin_id: str = "kin-one",
     trust: str = "CORE",
 ) -> None:
-    payload: dict[str, JsonValue] = {"generation": 1}
     with sqlite3.connect(database) as connection:
         connection.execute(
             "INSERT INTO event(event_id,event_type,schema_version,kin_id,run_id,sequence,"
@@ -108,6 +110,81 @@ def input_event(
                 payload_digest(payload),
             ),
         )
+
+
+def input_event(
+    database: Path, *, event_type: str, run_id: str, kin_id: str = "kin-one", trust: str = "CORE"
+) -> None:
+    insert_event(
+        database,
+        event_type=event_type,
+        run_id=run_id,
+        payload={"generation": 1},
+        kin_id=kin_id,
+        trust=trust,
+    )
+
+
+def auth_event(
+    database: Path,
+    *,
+    run_id: str,
+    profile_id: str = "world-a",
+    kin_id: str = "kin-one",
+    trust: str = "CORE",
+) -> None:
+    insert_event(
+        database,
+        event_type="AuthPolicyFrozen",
+        run_id=run_id,
+        payload={
+            "auth_mode": "offline",
+            "online_adapter_enabled": False,
+            "server_profile_id": profile_id,
+        },
+        kin_id=kin_id,
+        trust=trust,
+    )
+
+
+def test_the_last_session_names_its_world_and_is_compared_against_the_current_one(
+    database: Path,
+) -> None:
+    """The same ledger already says which server profile the last run was for.
+
+    The packet carries that name and, when the caller says which profile is
+    current, whether they are the same — the smallest honest beginning of
+    "the same person continues", and `unknown` when either side is not known.
+    """
+
+    record(database)
+    auth_event(database, run_id="old-run", profile_id="world-a")
+
+    same = read_last_session(database, kin_id="kin-one", current_server_profile_id="world-a")
+    record_out = same["record"]
+    assert isinstance(record_out, dict)
+    assert record_out["server_profile_id"] == "world-a"
+    assert same["current_world_applicability"] == "same_profile"
+
+    different = read_last_session(database, kin_id="kin-one", current_server_profile_id="world-b")
+    assert different["current_world_applicability"] == "different_profile"
+
+    unnamed = read_last_session(database, kin_id="kin-one")
+    assert unnamed["current_world_applicability"] == "unknown"
+
+
+def test_a_world_name_no_core_event_supports_stays_empty(database: Path) -> None:
+    record(database)
+    # A forged untrusted row cannot put a world on the record; a run that never
+    # froze an auth policy has none to name.
+    auth_event(database, run_id="old-run", profile_id="world-a", trust="UNTRUSTED_WORLD_CONTENT")
+
+    packet = read_last_session(database, kin_id="kin-one", current_server_profile_id="world-a")
+
+    record_out = packet["record"]
+    assert isinstance(record_out, dict)
+    assert record_out["server_profile_id"] == ""
+    assert packet["current_world_applicability"] == "unknown"
 
 
 def test_a_last_session_that_let_go_says_the_release_was_recorded(database: Path) -> None:

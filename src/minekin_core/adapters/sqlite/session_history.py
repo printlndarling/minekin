@@ -20,6 +20,10 @@ from minekin_core.application.ports.event_store import JsonValue, payload_digest
 from minekin_core.domain.errors import MinekinError
 from minekin_core.domain.session_state import SessionState
 
+#: The shape a server-profile reference is written in (the same one the profile
+#: loader admits); this reader carries one bounded token or nothing.
+_PROFILE_ID = re.compile(r"[a-z0-9][a-z0-9._-]+")
+
 
 def _recorded_input_release(connection: sqlite3.Connection, kin_id: str, run_id: str) -> str:
     """Read bounded latest facts, never turn corrupt or earlier release into safety."""
@@ -62,8 +66,48 @@ def _recorded_input_release(connection: sqlite3.Connection, kin_id: str, run_id:
     return "released_recorded"
 
 
+def _recorded_server_profile(connection: sqlite3.Connection, kin_id: str, run_id: str) -> str:
+    """The run's own bounded profile reference, or nothing this reader will carry.
+
+    One token or the empty string: the latest CORE-attributed `AuthPolicyFrozen`
+    for this run, digest-checked like the lease facts, with the value held to the
+    same shape that event was written under. A run that never froze a policy (no
+    world), a forged row, or a payload that does not parse all read as unnamed —
+    and the comparison the caller gets is `unknown` rather than a guess.
+    """
+
+    fact = connection.execute(
+        "SELECT substr(payload_json,1,4097) AS payload_json,payload_hash "
+        "FROM event WHERE kin_id=? AND run_id=? AND event_type='AuthPolicyFrozen' "
+        "AND source='CORE' AND trust_class='CORE' ORDER BY position DESC LIMIT 1",
+        (kin_id, run_id),
+    ).fetchone()
+    if fact is None:
+        return ""
+    text = fact["payload_json"]
+    if not isinstance(text, str) or len(text) > 4096:
+        return ""
+    try:
+        value: object = json.loads(text)
+        if not isinstance(value, dict):
+            return ""
+        payload = cast("dict[str, JsonValue]", value)
+        if payload_digest(payload) != fact["payload_hash"]:
+            return ""
+        candidate = payload.get("server_profile_id")
+    except (TypeError, ValueError, UnicodeError):
+        return ""
+    if isinstance(candidate, str) and _PROFILE_ID.fullmatch(candidate):
+        return candidate
+    return ""
+
+
 def read_last_session(
-    database: Path, *, kin_id: str, exclude_run_id: str = ""
+    database: Path,
+    *,
+    kin_id: str,
+    exclude_run_id: str = "",
+    current_server_profile_id: str = "",
 ) -> dict[str, object]:
     """Return one trustworthy historical phase and its event reference, creating nothing.
 
@@ -76,6 +120,11 @@ def read_last_session(
     stop receipt, not the ledger, so `recorded` is the honest word), `not_released`
     when a lease was granted and no release was recorded — the fact a next session
     most needs, because those keys may have been down when the ledger stopped.
+
+    Which world the last session was for comes from that run's own
+    `AuthPolicyFrozen` event, and a caller that says which profile is current gets
+    the comparison the packet was already shaped for (`same_profile`/
+    `different_profile`); every other case stays `unknown`.
     """
     packet: dict[str, object] = {
         "retriever_version": "last-session-v1",
@@ -105,8 +154,10 @@ def read_last_session(
             # came from: read here, while the connection is open, and only for
             # this run — another session's release must not answer for this one.
             input_release = "unknown"
+            server_profile_id = ""
             if row is not None and isinstance(row["run_id"], str):
                 input_release = _recorded_input_release(connection, kin_id, row["run_id"])
+                server_profile_id = _recorded_server_profile(connection, kin_id, row["run_id"])
         finally:
             connection.close()
     except (sqlite3.Error, MinekinError, OSError):
@@ -152,5 +203,12 @@ def read_last_session(
         "trust_class": "CORE",
         "last_recorded_phase": phase.value,
         "input_release": input_release,
+        "server_profile_id": server_profile_id,
     }
+    if server_profile_id and current_server_profile_id:
+        packet["current_world_applicability"] = (
+            "same_profile"
+            if server_profile_id == current_server_profile_id
+            else "different_profile"
+        )
     return packet
