@@ -10,6 +10,7 @@ import pytest
 
 from minekin_core.adapters.sqlite.connection import migrate
 from minekin_core.adapters.sqlite.session_history import read_last_session
+from minekin_core.adapters.sqlite.session_log import INPUT_LEASE_GRANTED, INPUT_RELEASED
 from minekin_core.application.ports.event_store import JsonValue, payload_digest
 from minekin_core.cli.init import DATABASE_NAME
 from minekin_core.cli.session import mind_for_run
@@ -71,12 +72,85 @@ def test_history_is_readonly_reopenable_and_excludes_current_run(database: Path)
         "source": "CORE",
         "trust_class": "CORE",
         "last_recorded_phase": "STOPPED",
-        "input_release": "unknown",
+        # The fixture's run never granted a lease, and the same ledger says so:
+        # "unknown" was what the packet said before it read the lease events.
+        "input_release": "nothing_held",
     }
     assert first["freshness"] == "historical"
     assert first["current_world_applicability"] == "unknown"
     assert first["world_facts"] == "not_retrieved"
     assert database.read_bytes() == before
+
+
+def input_event(
+    database: Path,
+    *,
+    event_type: str,
+    run_id: str,
+    kin_id: str = "kin-one",
+    trust: str = "CORE",
+) -> None:
+    payload: dict[str, JsonValue] = {"generation": 1}
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO event(event_id,event_type,schema_version,kin_id,run_id,sequence,"
+            "correlation_id,monotonic_ns,observed_at_utc,source,trust_class,"
+            "payload_json,payload_hash) "
+            "VALUES (?, ?, 1, ?, ?, '2', 'test', 0, "
+            "'2026-10-03T00:00:01+00:00', 'CORE', ?, ?, ?)",
+            (
+                f"event-{event_type}-{run_id}",
+                event_type,
+                kin_id,
+                run_id,
+                trust,
+                json.dumps(payload),
+                payload_digest(payload),
+            ),
+        )
+
+
+def test_a_last_session_that_let_go_says_the_release_was_recorded(database: Path) -> None:
+    """The same ledger already holds the lease facts, and the packet may read them.
+
+    `released_recorded` is the honest word and not `released`: the ledger holds the
+    release command having gone out, and the Bridge's own acknowledgement lives in
+    the receipt, not here. Another run's events must not answer for this one.
+    """
+
+    record(database)
+    input_event(database, event_type=INPUT_LEASE_GRANTED, run_id="old-run")
+    input_event(database, event_type=INPUT_RELEASED, run_id="old-run")
+    # A different run's release, which must not be borrowed for this session's answer.
+    input_event(database, event_type=INPUT_LEASE_GRANTED, run_id="other-run")
+    input_event(database, event_type=INPUT_RELEASED, run_id="other-run")
+
+    packet = read_last_session(database, kin_id="kin-one")
+
+    assert packet["status"] == "found"
+    record_out = packet["record"]
+    assert isinstance(record_out, dict)
+    assert record_out["input_release"] == "released_recorded"
+
+
+def test_a_last_session_that_never_let_go_says_so(database: Path) -> None:
+    """A granted lease with no recorded release is the fact the next session most
+    needs: those keys may have been down when the ledger stopped."""
+
+    record(database)
+    input_event(database, event_type=INPUT_LEASE_GRANTED, run_id="old-run")
+    # A forged release with no trust cannot answer for the run: the packet reads
+    # the same CORE-attributed evidence the record row itself had to be.
+    input_event(
+        database, event_type=INPUT_RELEASED, run_id="old-run", trust="UNTRUSTED_WORLD_CONTENT"
+    )
+
+    packet = read_last_session(database, kin_id="kin-one")
+
+    assert packet["status"] == "found"
+    record_out = packet["record"]
+    assert isinstance(record_out, dict)
+    assert record_out["input_release"] == "not_released"
 
 
 def test_untrusted_event_and_arbitrary_payload_do_not_enter_context(database: Path) -> None:

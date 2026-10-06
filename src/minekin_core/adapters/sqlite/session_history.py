@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import cast
 
 from minekin_core.adapters.sqlite.connection import connect_reader
-from minekin_core.adapters.sqlite.session_log import SESSION_STATE_TRANSITIONED
+from minekin_core.adapters.sqlite.session_log import (
+    INPUT_LEASE_GRANTED,
+    INPUT_RELEASED,
+    SESSION_STATE_TRANSITIONED,
+)
 from minekin_core.adapters.sqlite.skill_history import read_skill_experiences
 from minekin_core.application.ports.event_store import JsonValue, payload_digest
 from minekin_core.domain.errors import MinekinError
@@ -24,7 +28,13 @@ def read_last_session(
 
     This is software lifecycle experience associated with the Kin, not knowledge
     of a server/world. STOPPED alone does not establish confirmed key release or
-    a clean world save. Missing or corrupt evidence stays unknown.
+    a clean world save. Missing or corrupt evidence stays unknown. What the packet
+    may say about input comes from the same run's own lease events, and no further
+    than they do: `nothing_held` when no lease was ever granted, `released_recorded`
+    when a release command was recorded (the Bridge's acknowledgement lives in the
+    stop receipt, not the ledger, so `recorded` is the honest word), `not_released`
+    when a lease was granted and no release was recorded — the fact a next session
+    most needs, because those keys may have been down when the ledger stopped.
     """
     packet: dict[str, object] = {
         "retriever_version": "last-session-v1",
@@ -50,6 +60,25 @@ def read_last_session(
                 "AND source='CORE' AND trust_class='CORE' ORDER BY position DESC LIMIT 1",
                 (kin_id, exclude_run_id, SESSION_STATE_TRANSITIONED),
             ).fetchone()
+            # The same run's own lease facts, from the same ledger the record row
+            # came from: read here, while the connection is open, and only for
+            # this run — another session's release must not answer for this one.
+            granted = False
+            released = False
+            if row is not None and isinstance(row["run_id"], str):
+                lease_row = connection.execute(
+                    "SELECT 1 FROM event WHERE kin_id=? AND run_id=? AND event_type=? "
+                    "AND source='CORE' AND trust_class='CORE' LIMIT 1",
+                    (kin_id, row["run_id"], INPUT_LEASE_GRANTED),
+                ).fetchone()
+                granted = lease_row is not None
+                if granted:
+                    release_row = connection.execute(
+                        "SELECT 1 FROM event WHERE kin_id=? AND run_id=? AND event_type=? "
+                        "AND source='CORE' AND trust_class='CORE' LIMIT 1",
+                        (kin_id, row["run_id"], INPUT_RELEASED),
+                    ).fetchone()
+                    released = release_row is not None
         finally:
             connection.close()
     except (sqlite3.Error, MinekinError, OSError):
@@ -94,6 +123,8 @@ def read_last_session(
         "source": "CORE",
         "trust_class": "CORE",
         "last_recorded_phase": phase.value,
-        "input_release": "unknown",
+        "input_release": (
+            "nothing_held" if not granted else "released_recorded" if released else "not_released"
+        ),
     }
     return packet

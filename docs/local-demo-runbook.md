@@ -1408,3 +1408,13 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **先红后绿**：3 新执行器测试（走到·按位置确认 `5.7→"0.30"`；四种按名拒止；受阻跳后按名收口）＋2 计划层（解析两坐标、缺 z 按位置拒、dispatch 路由不落尾）。**同批暴露的既有测试 flake 一并修**：真跑停止那条测试的"之后无帧"断言把心跳帧当成了命令帧（控制频道与心跳共用；整套满负载时抓到）——改为排除 `HEARTBEAT_TYPE` 后断言。门（uv）：pyright 0/0/0、ruff 0、format 512、全仓 **4156 passed / 2 skipped**。
 
 **按实/不声明**：单元面；活体（真实世界里走到一个坐标、含矮墙一跳）与其余活体项一起等窗口。
+
+## 六之四十八、上次会话的松键事实：从同一本账里读出来（2026-10-06，单元面交付）
+
+`read_last_session`（恢复包 `last-session-v1`）的 `record.input_release` 此前一律写 `"unknown"`——而**同一本账里就有同一 run 的租约事实**。本发把它读成三种如实值（先红后绿）：
+- `nothing_held`：该 run 从未 `InputLeaseGranted`（没有键需要松）；
+- `released_recorded`：有租约且 `InputReleased` 已记录——**"recorded"是准确的词**：账本记的是释放命令已发出，Bridge 的确认在停止回执里、不在账本里（模块 docstring 同步写明，旧纪律"STOPPED 不等于已确认松键"原样保留）；
+- `not_released`：有租约、没有释放记录——**下一会话最需要的那一格**：键可能在账本停下时还按着；
+- 解析失败/读不到：仍 `unknown`。
+
+两条查询与记录行同源同纪律：`source='CORE' AND trust_class='CORE'`（伪造的 UNTRUSTED 释放行不能翻转答案——有专门测试），且只认**该 run 自己**的租约事件（另一起 run 的释放不代答——有专门测试）。测试 3 新＋1 旧钉按设计意图更新（无租约的旧夹具从 `unknown` 改判 `nothing_held`）；邻套件 199 绿；门（uv）：pyright 0/0/0、ruff 0、format 512、全仓 **4158 passed / 2 skipped**。消费面（模型 offer 的 `session_history`、run document、Gateway 只读投影按值透传）不受破坏。
