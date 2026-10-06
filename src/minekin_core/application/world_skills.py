@@ -77,7 +77,6 @@ from minekin_core.domain.world_actions import (
     SkillOutcome,
     angle_error_degrees,
     angle_to_degrees,
-    best_wieldable_weapon,
     consume_item_refusal,
     gui_click_refusal,
     hotbar_slot_for_item,
@@ -2045,35 +2044,10 @@ class WorldSkills:
             dy=entity.relative_y - EYE_HEIGHT_BLOCKS,
             dz=entity.relative_z,
         )
-        # Bring the best curated weapon to hand first, when one is within a number key's
-        # reach: the same shape as the meal's selection phase, spending the same single
-        # window. A bag with no curated weapon in reach fights as before, bare -- the
-        # table orders what to hold, it never refuses the fight itself.
-        weapon = best_wieldable_weapon(pre)
-        weapon_id = "" if weapon is None else weapon[0]
-        if weapon_id and pre.self_state.main_hand_item_id != weapon_id:
-            slot = hotbar_slot_for_item(pre.inventory, weapon_id)
-            # `best_wieldable_weapon` answers only with a hotbar stack or the held hand,
-            # and the held case is excluded above, so the slot exists for every ask.
-            assert slot is not None
-            selected = await self.select_hotbar(
-                slot=slot,
-                authority=authority,
-                expected_item_id=weapon_id,
-                timeout_ns=max(0, deadline - monotonic_ns()),
-            )
-            if selected.result is not ActionResultClass.CONFIRMED:
-                # The number key's own verdict, kept verbatim and labelled with the
-                # phase it belonged to: a weapon that never reached the hand is not a
-                # fight that swung and missed.
-                return SkillOutcome(
-                    result=selected.result,
-                    reason=selected.reason,
-                    action_id=selected.action_id,
-                    pre_tick=selected.pre_tick,
-                    post_tick=selected.post_tick,
-                    details={**selected.details, "phase": "select_hotbar", "weapon": weapon_id},
-                )
+        # A fight request authorizes attacking, not choosing equipment. The deciding
+        # layer can issue select_hotbar first; this skill must preserve that choice,
+        # including a weaker tool, an ordinary item or an empty hand.
+        weapon_id = pre.self_state.main_hand_item_id or ""
         if not await self._aim_until_arrived(
             action_id, authority, yaw, pitch, base=pre, deadline=deadline
         ):
@@ -2129,8 +2103,8 @@ class WorldSkills:
                 "target": entity.entity_type,
                 "swing_seconds": f"{swing:g}",
                 "newest_checked_tick": str(post.game_tick),
-                # Which weapon the swing was made with, or the empty name for fists --
-                # read off the curated table's choice, not off the swing's outcome.
+                # The actual hand at the checked start of this action, not a catalog
+                # recommendation or a claim that a weapon caused the outcome.
                 "weapon": weapon_id,
             },
         )

@@ -3479,16 +3479,24 @@ def _armed_state(
     )
 
 
-def test_fight_back_brings_the_best_reachable_weapon_to_hand_before_swinging() -> None:
-    """The curated weapon table's one use: with a pickaxe in slot 1 and an axe in
-    slot 2, the fight presses the axe's number key first -- and the details say which
-    weapon the swing was made with. Ordering only: the confirmation is still the
-    world's own later reading."""
+@pytest.mark.parametrize("held_item", ["minecraft:wooden_pickaxe", "minecraft:oak_log"])
+def test_fight_back_preserves_the_chosen_hand_even_with_a_stronger_weapon_available(
+    held_item: str,
+) -> None:
+    """Attacking is not permission to choose equipment: the selected pickaxe stays
+    in hand even when the local catalog rates a reachable axe higher."""
 
     async def scenario() -> None:
         slime = slime_entity(tick=100)
-        armed = inventory(100, (1, "minecraft:wooden_pickaxe", 1), (2, "minecraft:stone_axe", 1))
-        store = store_with(reading(tick=100, inventory_value=armed, entities=(slime,)))
+        armed = inventory(100, (1, held_item, 1), (2, "minecraft:stone_axe", 1))
+        store = store_with(
+            reading(
+                tick=100,
+                state_value=_armed_state(selected_slot=1, main_hand=held_item),
+                inventory_value=armed,
+                entities=(slime,),
+            )
+        )
         skills, sender = skill_with(store)
         yaw, pitch = angle_to_degrees(
             dx=slime.relative_x,
@@ -3497,15 +3505,9 @@ def test_fight_back_brings_the_best_reachable_weapon_to_hand_before_swinging() -
         )
         queued = [
             reading(
-                tick=105,
-                state_value=_armed_state(selected_slot=2, main_hand="minecraft:stone_axe"),
-                inventory_value=armed,
-                entities=(slime,),
-            ),
-            reading(
                 tick=110,
                 state_value=_armed_state(
-                    selected_slot=2, main_hand="minecraft:stone_axe", yaw=yaw, pitch=pitch
+                    selected_slot=1, main_hand=held_item, yaw=yaw, pitch=pitch
                 ),
                 inventory_value=armed,
                 entities=(slime,),
@@ -3523,14 +3525,12 @@ def test_fight_back_brings_the_best_reachable_weapon_to_hand_before_swinging() -
 
         sender.on_send = answer
         outcome = await skills.fight_back(
-            authority=authority(), swing_seconds=1.0, timeout_ns=10_000_000_000
+            authority=authority(), swing_seconds=1.0, timeout_ns=100_000_000
         )
 
         assert outcome.result is ActionResultClass.CONFIRMED
-        assert outcome.details["weapon"] == "minecraft:stone_axe"
-        assert sender.types()[0] == HOTBAR_SELECT_INPUT_TYPE
-        select = sender.sent[0][1]
-        assert select.slot == 2  # type: ignore[attr-defined]
+        assert outcome.details["weapon"] == held_item
+        assert HOTBAR_SELECT_INPUT_TYPE not in sender.types()
 
     asyncio.run(scenario())
 
@@ -3575,9 +3575,8 @@ def test_fight_back_fights_bare_handed_when_no_curated_weapon_is_reachable() -> 
     asyncio.run(scenario())
 
 
-def test_fight_back_labels_a_selection_that_never_confirmed_with_its_phase() -> None:
-    """A weapon that never reaches the hand is the number key's own verdict, labelled
-    with the phase it belonged to -- not a fight that failed."""
+def test_fight_back_does_not_select_a_weapon_even_when_aim_cannot_be_confirmed() -> None:
+    """A missing aim confirmation cannot authorize an unrelated equipment change."""
 
     async def scenario() -> None:
         slime = slime_entity(tick=100)
@@ -3598,8 +3597,9 @@ def test_fight_back_labels_a_selection_that_never_confirmed_with_its_phase() -> 
             ActionResultClass.UNKNOWN,
             "NO_CONFIRMING_OBSERVATION",
         )
-        assert outcome.details["phase"] == "select_hotbar"
-        assert sender.types() == [HOTBAR_SELECT_INPUT_TYPE]
+        assert "phase" not in outcome.details
+        assert HOTBAR_SELECT_INPUT_TYPE not in sender.types()
+        assert sender.types()[0] == AIM_INPUT_TYPE
 
     asyncio.run(scenario())
 

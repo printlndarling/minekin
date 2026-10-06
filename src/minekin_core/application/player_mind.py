@@ -991,9 +991,8 @@ def observation_summary(
         "crafting_grid_side": side,
         "craft_options": list(craft_options(reading, grid_side=side)),
         "consumable_items": list(reachable_food_items(reading)),
-        # The weapons a number key can bring to hand, the same actionable view the meal
-        # list gives: a fight names its target, and what it will be holding is this
-        # build's table's choice among these.
+        # Observation candidates, not an equipment policy. The model chooses a slot
+        # explicitly before fighting; the fight executor does not replace its choice.
         "wieldable_items": list(reachable_weapons(reading)),
         "health": reading.self_state.health,
         "max_health": reading.self_state.max_health,
