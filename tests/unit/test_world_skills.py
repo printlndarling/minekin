@@ -3506,6 +3506,121 @@ def test_a_hop_that_clears_the_rise_lets_the_approach_confirm() -> None:
     asyncio.run(scenario())
 
 
+def test_move_to_walks_to_the_named_place_and_confirms_by_its_own_position() -> None:
+    """A place, not a body: the bearing is computed from the body's own reported
+    x/z to the named coordinate, and arrival is a reading inside the tolerance —
+    the same readings a retreat measures movement against, pointed at a target."""
+
+    async def scenario() -> None:
+        start = positioned(tick=100, x=0.0, z=0.0)
+        store = store_with(start)
+        skills, sender = skill_with(store)
+        bearing, _ = angle_to_degrees(dx=6.0, dy=0.0, dz=0.0)
+        queued = [
+            positioned(tick=110, x=0.0, z=0.0, yaw=bearing),
+            positioned(tick=120, x=3.0, z=0.0),
+            positioned(tick=130, x=3.0, z=0.0, yaw=bearing),
+            positioned(tick=140, x=5.7, z=0.0),
+        ]
+        moves_sent = 0
+
+        def answer(message_type: str) -> None:
+            nonlocal moves_sent
+            if message_type == MOVE_INPUT_TYPE:
+                moves_sent += 1
+                if moves_sent % 2 == 0:
+                    return
+            if message_type in (AIM_INPUT_TYPE, MOVE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.move_to(
+            x=6.0, z=0.0, authority=authority(), timeout_ns=10_000_000_000
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.details["steps"] == "2"
+        assert outcome.details["distance_blocks"] == "0.30"
+        assert outcome.details["target"] == "6.00,0.00"
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        assert [message.forward for message in moves] == [1.0, 0.0, 1.0, 0.0]  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_move_to_concludes_by_name_on_impossible_asks_and_an_unknown_position() -> None:
+    async def scenario() -> None:
+        far, far_sender = skill_with(store_with(positioned(tick=100, x=0.0, z=0.0)))
+        outcome = await far.move_to(x=200.0, z=0.0, authority=authority(), timeout_ns=1_000_000_000)
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "MOVE_TARGET_TOO_FAR"
+        assert far_sender.sent == []
+
+        nowhere, nowhere_sender = skill_with(store_with(reading(tick=100)))
+        outcome = await nowhere.move_to(
+            x=3.0, z=3.0, authority=authority(), timeout_ns=1_000_000_000
+        )
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "MOVE_POSITION_UNKNOWN"
+        assert nowhere_sender.sent == []
+
+        invalid, invalid_sender = skill_with(store_with(positioned(tick=100, x=0.0, z=0.0)))
+        outcome = await invalid.move_to(
+            x=float("nan"), z=0.0, authority=authority(), timeout_ns=1_000_000_000
+        )
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "MOVE_TARGET_INVALID"
+        assert invalid_sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_move_to_names_a_blocked_path_when_the_hop_does_not_free_it() -> None:
+    """The blocked-step answer is the walks': a step that closes nothing hops
+    once, and two blocked frames in a row conclude the move by name."""
+
+    async def scenario() -> None:
+        start = positioned(tick=100, x=0.0, z=0.0)
+        store = store_with(start)
+        skills, sender = skill_with(store)
+        bearing, _ = angle_to_degrees(dx=6.0, dy=0.0, dz=0.0)
+        queued = [
+            positioned(tick=110, x=0.0, z=0.0, yaw=bearing),
+            positioned(tick=120, x=0.0, z=0.0),
+            positioned(tick=130, x=0.0, z=0.0, yaw=bearing),
+            positioned(tick=140, x=0.0, z=0.0),
+        ]
+        moves_sent = 0
+
+        def answer(message_type: str) -> None:
+            nonlocal moves_sent
+            if message_type == MOVE_INPUT_TYPE:
+                moves_sent += 1
+                if moves_sent % 2 == 0:
+                    return
+            if message_type in (AIM_INPUT_TYPE, MOVE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.move_to(
+            x=6.0, z=0.0, authority=authority(), timeout_ns=10_000_000_000
+        )
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "MOVE_PATH_BLOCKED"
+        assert outcome.details["steps"] == "2"
+        assert outcome.details["jumps"] == "1"
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        assert [message.jump for message in moves] == [  # type: ignore[attr-defined]
+            False,
+            False,
+            True,
+            False,
+        ]
+
+    asyncio.run(scenario())
+
+
 def test_the_collect_chase_hops_once_the_gap_stops_closing() -> None:
     """The same reaction, on the one walk that already counts stalls: the first
     correction that closes nothing goes out with the jump key, and the reading

@@ -1395,3 +1395,16 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **先绿后突变（本轮实现先行，用变异证明测试会咬）**：2 新测试（连接帧在线上时逐字 `("CONNECT_WORLD","pending")`、`JOIN_SEEN` 后**仍 pending**、`Playable` 后 completed；断连终态后 completed）；共享一个"把连接命令推上线"的测试助手上半段。两个变异逐一验证：①抽掉 open（`connect_effect[0] = ""`）→ 首断言按名红；②抽掉 playable/DISCONNECTED/FAILED 的结算块 → completed 断言按名红——原样恢复后绿。测试首跑暴露真实时序：事件先落账、结算紧随其后，因此断言等的是**outbox 自己的** completed 行而不是事件的到达瞬间（已写进注释）。门（uv）：pyright 0/0/0、ruff 0、format 512、全仓 **4151 passed / 2 skipped**。
 
 **按实/不声明**：单元面；活体（真实连接期杀进程 → 下一次启动 `invalidated` 含该 id）与其余活体项一起等窗口。`RELEASE_ALL`／`STOP_SESSION`（RETRY 类）的"重放＝下一次 wind-down 的释放"语义触碰重启断言（`waiting` 须空），仍列**待设计**，不随本卡代做。
+
+## 六之四十七、走到一个地方：move_to 的通用执行器与计划面（2026-10-06，单元面交付；活体待窗口）
+
+**缺口（S1-PERCEPTION-NAV 具名的"短/长目标坐标"）**：技能表里能追实体、能采掉落物，但没有"走到一个坐标"——模型/操作者无法让 Kin 去一个它记得或被告知的地方。
+
+**交付（先红后绿）**：
+- `WorldSkills.move_to(x, z)`：位置取自客户端自报的 `self_state.x/z`（retreat 用来测位移的同一对读数），每步由"我现在在哪"与目标重算朝向（`angle_to_degrees`）、`_aim_until_arrived` 后走一步——**同一个受阻跳反应**（一步没收窄就跳，连续两受阻步按名）；到达＝一条读数落在 `MOVETO_ARRIVAL_BLOCKS`（1.0 格）以内。按名拒止/收口：`MOVE_TARGET_INVALID`（非有限/超世界跨度）、`MOVE_POSITION_UNKNOWN`（读数没说位置——缺席不是原点，`_horizontal_position` 的 None）、`MOVE_SCREEN_OPEN`、`MOVE_TARGET_TOO_FAR`（>64 格：一次有界差事不是长征）、`MOVE_PATH_BLOCKED`（跳没清掉）、`MOVE_NOT_CONFIRMED`。details 走既有字段风格（target/distance_blocks/steps[/jumps]/newest_checked_tick）。
+- 计划面：`SkillCall` 增 `x/z` 字段；`_REQUIRED["move_to"]=("x","z")`（都必填、无默认；`_DEFAULTED`/`_ALTERNATIVES` 补空行——三表按名索引）；解析器按既有 `_number` 取值；`_dispatch` 路由到 `move_to`；`skill_capabilities` 增 `{MOVE, AIM}`；`skill_parameters` 按该模块"全名字都有行"的契约补 `x/z`（±30M 界）。
+- **有意不做的**：**暂不把 move_to 放进模型的可选集**——摘要里还没有"值得走去的坐标"（记忆/地标数据未落地），提前上架只会邀请模型编造坐标；执行器与计划面先立好，等 S2 记忆给它意义。写在上架处的理由随卡记录。
+
+**先红后绿**：3 新执行器测试（走到·按位置确认 `5.7→"0.30"`；四种按名拒止；受阻跳后按名收口）＋2 计划层（解析两坐标、缺 z 按位置拒、dispatch 路由不落尾）。**同批暴露的既有测试 flake 一并修**：真跑停止那条测试的"之后无帧"断言把心跳帧当成了命令帧（控制频道与心跳共用；整套满负载时抓到）——改为排除 `HEARTBEAT_TYPE` 后断言。门（uv）：pyright 0/0/0、ruff 0、format 512、全仓 **4156 passed / 2 skipped**。
+
+**按实/不声明**：单元面；活体（真实世界里走到一个坐标、含矮墙一跳）与其余活体项一起等窗口。

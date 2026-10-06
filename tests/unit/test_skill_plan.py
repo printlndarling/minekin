@@ -934,6 +934,65 @@ def test_dispatch_maps_a_retreat_call_onto_the_retreat_skill() -> None:
     assert skills.seen == (authority, 3.5, 5_000_000_000)
 
 
+def test_a_plan_names_a_place_with_both_coordinates_and_dispatch_routes_it() -> None:
+    """`move_to` takes a place outright -- both coordinates are the ask -- and the
+    dispatcher routes the name to the skill, not to whichever branch falls last."""
+
+    import asyncio
+
+    from minekin_core.application import skill_plan as skill_plan_module
+    from minekin_core.application.skill_plan import SkillCall, parse_skill_plan
+    from minekin_core.application.world_skills import ActionAuthority
+    from minekin_core.domain.ids import OpaqueId
+    from minekin_core.domain.world_actions import skill_capabilities
+
+    document = {"schema_version": 1, "skills": [{"skill": "move_to", "x": 12.5, "z": -4.0}]}
+    plan = parse_skill_plan(document, source="test")
+
+    assert plan.calls[0].x == 12.5
+    assert plan.calls[0].z == -4.0
+    assert skill_capabilities("move_to") == frozenset({MOVE_CAPABILITY, AIM_CAPABILITY})
+
+    class OnlyMoveTo:
+        def __init__(self) -> None:
+            self.seen: tuple[float, float, object, int] | None = None
+
+        async def move_to(self, *, x: float, z: float, authority: object, timeout_ns: int) -> str:
+            self.seen = (x, z, authority, timeout_ns)
+            return "outcome"
+
+        def __getattr__(self, name: str) -> object:
+            raise AssertionError(f"dispatch reached an unexpected skill: {name}")
+
+    authority = ActionAuthority(
+        lease_id=OpaqueId.new().value,
+        generation=1,
+        deadline_monotonic_ns=1_000_000_000,
+    )
+    skills = OnlyMoveTo()
+    outcome = asyncio.run(
+        skill_plan_module._dispatch(  # pyright: ignore[reportPrivateUsage] -- focused dispatch regression
+            skills,  # type: ignore[arg-type]
+            SkillCall(name="move_to", x=12.5, z=-4.0),
+            authority=authority,
+            timeout_ns=5_000_000_000,
+        )
+    )
+    assert outcome == "outcome"
+    assert skills.seen == (12.5, -4.0, authority, 5_000_000_000)
+
+
+def test_a_move_without_its_coordinates_is_refused_by_position() -> None:
+    from minekin_core.application.skill_plan import SkillPlanError, parse_skill_plan
+
+    document = {"schema_version": 1, "skills": [{"skill": "move_to", "x": 3.0}]}
+    with pytest.raises(SkillPlanError) as refused:
+        parse_skill_plan(document, source="test")
+    message = str(refused.value)
+    assert "missing" in message
+    assert "'z'" in message
+
+
 def test_the_plan_reader_reads_every_key_the_tables_allow() -> None:
     """The drift this pins: `parse_skill_plan` builds SkillCall from an explicit key list,
     and when that list fell behind the tables five newer keys (hold_seconds, swing_seconds,

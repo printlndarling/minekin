@@ -187,6 +187,12 @@ BEHAVIOR_PARAMETERS: Final[Mapping[str, tuple[Parameter, ...]]] = MappingProxyTy
             _item("target_entity_type"),
             _number("stop_within", ParameterKind.DISTANCE, 0.5, 8.0),
         ),
+        # A place named outright, in the frame the body's own readings use: both
+        # coordinates are the ask, and the bounds are the world's own span.
+        "move_to": (
+            _number("x", ParameterKind.DISTANCE, -30_000_000.0, 30_000_000.0),
+            _number("z", ParameterKind.DISTANCE, -30_000_000.0, 30_000_000.0),
+        ),
         # A use takes the aim from the reading, exactly as close_screen takes the
         # window from it — the model names the behavior and fills in nothing.
         "use_target": (),

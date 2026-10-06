@@ -114,6 +114,7 @@ SKILL_CAPABILITIES: Final[Mapping[str, frozenset[str]]] = {
     # Walking to a body is the same walk a collect takes toward a drop, pointed at a
     # rendered entity: the move key and the aim that sets its heading.
     "approach_entity": frozenset({MOVE_CAPABILITY, AIM_CAPABILITY}),
+    "move_to": frozenset({MOVE_CAPABILITY, AIM_CAPABILITY}),
 }
 
 

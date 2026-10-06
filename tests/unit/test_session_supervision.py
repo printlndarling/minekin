@@ -39,6 +39,7 @@ from minekin_core.adapters.bridge.ipc import (
     BRIDGE_HELLO_TYPE,
     CANCEL_CONNECTION_TYPE,
     CONNECT_WORLD_TYPE,
+    HEARTBEAT_TYPE,
     INITIAL_OBSERVATION_TYPE,
     LOOK_INPUT_TYPE,
     MOVE_INPUT_TYPE,
@@ -2175,7 +2176,8 @@ def test_a_stop_request_interrupts_a_running_plan_and_releases_over_the_live_cha
         await _wait_for_control_message(held.control_reader, RELEASE_ALL_INPUTS_TYPE)
         # Nothing else may go out behind the release: a second one would be a
         # second answer to one ask, and a further look would be the interrupted
-        # plan still driving a client the run is being taken away from.
+        # plan still driving a client the run is being taken away from. Heartbeats
+        # share this channel and are the session's pulse, not a command.
         seen = await _control_types_after(held.control_reader)
         held.process.exited = True
         _launch, run = await asyncio.wait_for(held.running, 10)
@@ -2186,7 +2188,7 @@ def test_a_stop_request_interrupts_a_running_plan_and_releases_over_the_live_cha
 
     assert receipt is not None
     assert receipt.release is StopRelease.SENT
-    assert seen == []
+    assert [kind for kind in seen if kind != HEARTBEAT_TYPE] == []
     assert run.outcome is SessionOutcome.CLIENT_EXITED
     # The plan's step ended on the ask, with the ask's own name — not on its window.
     assert run.skill_stop == "turn_to"

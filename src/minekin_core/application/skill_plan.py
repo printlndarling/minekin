@@ -80,6 +80,9 @@ _DEFAULTED: Final[dict[str, tuple[str, ...]]] = {
     # A trade names its row; nothing about it is filled from this side's reading (the row's
     # costs and payout are the screen's own, checked again when the click lands).
     "trade": (),
+    # A place on the ground is named outright: nothing about it is filled in from
+    # this side's reading, and both coordinates are the ask.
+    "move_to": (),
 }
 
 #: The argument each skill requires, by name. Empty for a skill that can run on
@@ -105,6 +108,7 @@ _REQUIRED: Final[dict[str, tuple[str, ...]]] = {
     # checks only that the skill was asked at all -- a row past the list's end is the
     # skill's own TRADE_OFFER_UNKNOWN.
     "trade": ("offer_index",),
+    "move_to": ("x", "z"),
     "look_at_entity": (),
     "approach_entity": (),
 }
@@ -126,6 +130,7 @@ _ALTERNATIVES: Final[dict[str, tuple[str, ...]]] = {
     "retreat": (),
     "fight_back": (),
     "trade": (),
+    "move_to": (),
     "look_at_entity": (),
     "approach_entity": (),
 }
@@ -281,6 +286,8 @@ def _parse_call(item: Mapping[str, Any], index: int) -> SkillCall:
     recipe_id, product_id, materials = _craft_arguments(item, index, name, by_product=by_product)
     return SkillCall(
         name=name,
+        x=_number(item, index, name, "x", 0.0),
+        z=_number(item, index, name, "z", 0.0),
         yaw_degrees=_number(item, index, name, "yaw_degrees", 0.0),
         pitch_degrees=_number(item, index, name, "pitch_degrees", 0.0),
         item_id=_text(item, index, name, "item_id"),
@@ -557,6 +564,13 @@ async def _dispatch(
             authority=authority,
             target_entity_type=call.target_entity_type,
             stop_within=call.stop_within,
+            timeout_ns=timeout_ns,
+        )
+    if call.name == "move_to":
+        return await skills.move_to(
+            x=call.x,
+            z=call.z,
+            authority=authority,
             timeout_ns=timeout_ns,
         )
     if call.name == "turn_to":

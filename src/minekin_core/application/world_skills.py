@@ -252,6 +252,15 @@ WALK_HOP_STALL_BLOCKS: Final[float] = 0.1
 APPROACH_MAX_BLOCKED_STEPS: Final[int] = 2
 APPROACH_PATH_BLOCKED: Final[str] = "APPROACH_PATH_BLOCKED"
 
+#: What a `move_to` will walk for and how close it counts as arrived, in blocks,
+#: and the coordinate bound beyond which a "place" is a mistake in the asking
+#: rather than somewhere to walk. One call is a bounded errand, not a journey: a
+#: place farther than this is refused by name, and the mind can chain steps.
+MOVETO_ARRIVAL_BLOCKS: Final[float] = 1.0
+MOVETO_MAX_BLOCKS: Final[float] = 64.0
+MOVETO_MAX_COORDINATE: Final[float] = 30_000_000.0
+MOVETO_MAX_STEPS: Final[int] = 12
+
 #: How long a `collect` waits for a felled item to register as a rendered entity
 #: before it concludes the drop is not in view. A `break` that CONFIRMED on the same
 #: tick can leave the very next frame still empty — the failure `collect` used to end
@@ -328,6 +337,10 @@ class SkillCall:
     """
 
     name: str
+    #: A place to walk to, in the frame the client reports the body in; only
+    #: `move_to` reads them, and the skill's own refusals name a silly value.
+    x: float = 0.0
+    z: float = 0.0
     yaw_degrees: float = 0.0
     pitch_degrees: float = 0.0
     item_id: str = ""
@@ -2426,6 +2439,177 @@ class WorldSkills:
             },
         )
 
+    async def move_to(
+        self,
+        *,
+        x: float,
+        z: float,
+        authority: ActionAuthority,
+        timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS,
+    ) -> SkillOutcome:
+        """Walk to a named place on the ground and confirm by the body's own readings.
+
+        The place is a coordinate in the same frame the client reports the body in —
+        the x/z a retreat measures movement against — so the bearing is computed
+        from where the body says it is to where the caller said to go, re-aimed as
+        the steps close on it. The step loop is the approach's, with the same
+        blocked-step answer (one hop, then a named end), and arrival is a reading
+        inside `MOVETO_ARRIVAL_BLOCKS`. A place past `MOVETO_MAX_BLOCKS` is refused
+        by name rather than walked at for a window it cannot reach, and a reading
+        that never says where the body is refuses too — absence is not zero.
+        """
+
+        for capability in (MOVE_CAPABILITY, AIM_CAPABILITY):
+            refusal = self._require(capability)
+            if refusal is not None:
+                return refusal
+        pre = self._observations.latest
+        action_id = self._action_id()
+        if pre is None:
+            return _refusal_outcome("NO_LATEST_OBSERVATION", action_id, pre)
+        if pre.generation != authority.generation:
+            return _refusal_outcome("WORLD_GENERATION_CHANGED", action_id, pre)
+        if pre.gui is not None and pre.gui.sync_id is not None:
+            return _refusal_outcome("MOVE_SCREEN_OPEN", action_id, pre)
+        if (
+            not math.isfinite(x)
+            or not math.isfinite(z)
+            or abs(x) > MOVETO_MAX_COORDINATE
+            or abs(z) > MOVETO_MAX_COORDINATE
+        ):
+            return _refusal_outcome("MOVE_TARGET_INVALID", action_id, pre)
+        position = _horizontal_position(pre)
+        if position is None:
+            return _refusal_outcome("MOVE_POSITION_UNKNOWN", action_id, pre)
+        px, pz = position
+        distance = math.hypot(x - px, z - pz)
+        if distance > MOVETO_MAX_BLOCKS:
+            return SkillOutcome(
+                result=ActionResultClass.FAILED,
+                reason="MOVE_TARGET_TOO_FAR",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                details={"distance_blocks": f"{distance:.2f}"},
+            )
+        if distance <= MOVETO_ARRIVAL_BLOCKS:
+            return SkillOutcome(
+                result=ActionResultClass.CONFIRMED,
+                reason="",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                post_tick=pre.game_tick,
+                details={
+                    "target": f"{x:.2f},{z:.2f}",
+                    "distance_blocks": f"{distance:.2f}",
+                    "steps": "0",
+                    "newest_checked_tick": str(pre.game_tick),
+                },
+            )
+        deadline = monotonic_ns() + timeout_ns
+        steps = 0
+        blocked = 0
+        jumps = 0
+        current = pre
+        last_distance = distance
+        while steps < MOVETO_MAX_STEPS:
+            if monotonic_ns() >= deadline:
+                break
+            position = _horizontal_position(current)
+            if position is None:
+                # The reading that carried the body stopped saying where it is;
+                # without that this walk cannot re-aim, and inventing a bearing
+                # would be steering at nothing. Both refusals are named.
+                return _refusal_outcome("MOVE_POSITION_UNKNOWN", action_id, current)
+            px, pz = position
+            bearing, _ = angle_to_degrees(dx=x - px, dy=0.0, dz=z - pz)
+            if not await self._aim_until_arrived(
+                action_id, authority, bearing, 0.0, base=current, deadline=deadline
+            ):
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason="NO_CONFIRMING_OBSERVATION",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=current.game_tick,
+                    details={"target": f"{x:.2f},{z:.2f}", "steps": str(steps)},
+                )
+            remaining_s = (deadline - monotonic_ns()) / 1_000_000_000
+            step_seconds = min(
+                APPROACH_MAX_STEP_SECONDS,
+                max(APPROACH_STEP_SECONDS, remaining_s - APPROACH_WINDOW_RESERVE_SECONDS),
+            )
+            hop = blocked >= 1
+            jumps += 1 if hop else 0
+            await self._send_walk(action_id, authority, forward=1.0, jump=hop)
+            async with self._release_on_exit(
+                lambda: self._send_walk(action_id, authority, forward=0.0)
+            ):
+                await self._sleep(step_seconds, action_id=action_id)
+            steps += 1
+            nxt = await self._wait_until(
+                _newer_reading(current.game_tick), deadline, action_id=action_id
+            )
+            if nxt is None:
+                break
+            current = nxt
+            position = _horizontal_position(current)
+            if position is None:
+                continue  # the next loop pass names it unknown
+            px, pz = position
+            now_distance = math.hypot(x - px, z - pz)
+            if now_distance <= MOVETO_ARRIVAL_BLOCKS:
+                details = {
+                    "target": f"{x:.2f},{z:.2f}",
+                    "distance_blocks": f"{now_distance:.2f}",
+                    "steps": str(steps),
+                    "newest_checked_tick": str(current.game_tick),
+                }
+                if jumps:
+                    details["jumps"] = str(jumps)
+                return SkillOutcome(
+                    result=ActionResultClass.CONFIRMED,
+                    reason="",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=current.game_tick,
+                    details=details,
+                )
+            if last_distance - now_distance < WALK_HOP_STALL_BLOCKS:
+                blocked += 1
+            else:
+                blocked = 0
+            last_distance = now_distance
+            if blocked >= APPROACH_MAX_BLOCKED_STEPS:
+                details = {
+                    "target": f"{x:.2f},{z:.2f}",
+                    "distance_blocks": f"{now_distance:.2f}",
+                    "steps": str(steps),
+                    "newest_checked_tick": str(current.game_tick),
+                }
+                if jumps:
+                    details["jumps"] = str(jumps)
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason="MOVE_PATH_BLOCKED",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=current.game_tick,
+                    details=details,
+                )
+        latest = self._observations.latest or current
+        return SkillOutcome(
+            result=ActionResultClass.UNKNOWN,
+            reason="MOVE_NOT_CONFIRMED",
+            action_id=action_id,
+            pre_tick=pre.game_tick,
+            post_tick=latest.game_tick,
+            details={
+                "target": f"{x:.2f},{z:.2f}",
+                "steps": str(steps),
+                "newest_checked_tick": str(latest.game_tick),
+            },
+        )
+
     async def look_at_entity(
         self,
         *,
@@ -2993,6 +3177,21 @@ def _target_unseen(entity_id: str) -> Callable[[WorldObservationValue], bool]:
     return lambda latest: all(
         candidate.observation_id != entity_id for candidate in latest.visible_entities
     )
+
+
+def _horizontal_position(observation: WorldObservationValue) -> tuple[float, float] | None:
+    """Where the body reports itself on the ground plane, or None.
+
+    None when the reading has no position to report: absence is not the origin,
+    and a walk that treated a missing x/z as (0, 0) would steer at wherever that
+    happens to be.
+    """
+
+    px = observation.self_state.x
+    pz = observation.self_state.z
+    if px is None or pz is None:
+        return None
+    return (px, pz)
 
 
 def _horizontal_movement(
