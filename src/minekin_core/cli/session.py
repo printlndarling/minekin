@@ -120,7 +120,7 @@ from minekin_core.application.autonomous_play import (
     run_autonomous_loop,
 )
 from minekin_core.application.physiology import PhysiologySampler
-from minekin_core.application.player_mind import PlayerMind, mind_for
+from minekin_core.application.player_mind import MindIntent, PlayerMind, mind_for
 from minekin_core.application.recovery_service import RecoveryReport
 from minekin_core.application.skill_plan import (
     SkillPlan,
@@ -1029,6 +1029,20 @@ def launched_minecraft_version(profile: Path) -> str:
     return version
 
 
+def _mind_step_product(intent: MindIntent) -> str:
+    """The product a mind-authored step was for, from the call the mind resolved.
+
+    The intent's own plan carries it — `SkillCall.product_id`, filled only by the
+    crafts that name a product — so the ledger row is anchored on the same value
+    the plan path writes rather than on a re-reading of the answer's vocabulary
+    (live-found: the answerer's word for it is `target_item`, and a row that read
+    `product_id` out of the raw arguments carried no anchor at all).
+    """
+
+    calls = intent.plan.calls
+    return calls[0].product_id if calls else ""
+
+
 def mind_for_run(
     kin_id: str,
     environ: Mapping[str, str] | None = None,
@@ -1850,7 +1864,7 @@ async def start_and_supervise(
                     "model_refusal": step.intent.model_refusal,
                     "goal": mind.direction,
                     "model_usage": ModelUsageTotals.capture(mind.ledger).as_document(),
-                    "product_id": str(step.intent.arguments.get("product_id", "")),
+                    "product_id": _mind_step_product(step.intent),
                 }
             )
 

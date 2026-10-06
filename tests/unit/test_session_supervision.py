@@ -2090,6 +2090,47 @@ def _answer(runs: Path) -> StopReceipt | None:
     return None if request is None else read_receipt(runs, request=request)
 
 
+def test_a_mind_authored_craft_row_is_anchored_on_the_minds_own_call() -> None:
+    """The ledger row for a mind-authored step takes its product from the call the
+    mind resolved, not from a re-reading of the answer's vocabulary.
+
+    Found live: the first two runs read `arguments["product_id"]` while the
+    answerer's own word is `target_item`, so their craft rows carried no anchor
+    and the goal recall stayed empty. The resolved call is the one truth both
+    paths share.
+    """
+
+    from minekin_core.application.player_mind import MindDecisionKind, MindIntent
+    from minekin_core.application.skill_plan import SkillCall, SkillPlan
+
+    craft = MindIntent(
+        kind=MindDecisionKind.INTENT,
+        plan=SkillPlan(
+            (
+                SkillCall(
+                    name="craft_take_result",
+                    recipe_id="minecraft:oak_planks",
+                    materials=(("minecraft:oak_log", 1),),
+                    product_id="minecraft:oak_planks",
+                ),
+            ),
+            source="test",
+        ),
+        reason="",
+    )
+    assert session_module._mind_step_product(craft) == "minecraft:oak_planks"  # pyright: ignore[reportPrivateUsage]
+
+    walk = MindIntent(
+        kind=MindDecisionKind.INTENT,
+        plan=SkillPlan((SkillCall(name="turn_to"),), source="test"),
+        reason="",
+    )
+    assert session_module._mind_step_product(walk) == ""  # pyright: ignore[reportPrivateUsage]
+
+    hold = MindIntent(kind=MindDecisionKind.HOLD, plan=SkillPlan((), source="test"), reason="")
+    assert session_module._mind_step_product(hold) == ""  # pyright: ignore[reportPrivateUsage]
+
+
 def test_a_stop_request_releases_the_input_over_the_still_live_channel(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
