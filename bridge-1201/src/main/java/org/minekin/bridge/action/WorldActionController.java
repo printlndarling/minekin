@@ -106,6 +106,22 @@ public final class WorldActionController implements WorldClientView {
     }
 
     @Override
+    public boolean say(String text) {
+        MinecraftClient client = runningClient();
+        if (client == null || client.player == null || client.world == null
+                || client.player.networkHandler == null) {
+            return false;
+        }
+        // The same call the chat screen's send makes — `sendChatMessage`, never
+        // `sendChatCommand` or `sendCommand`. The worker refuses a leading slash
+        // before it ever gets here because the server parses chat content into
+        // commands; this call is the second lock on the same door. The call is
+        // safe on the client thread, which is where the worker's actions run.
+        client.player.networkHandler.sendChatMessage(text);
+        return true;
+    }
+
+    @Override
     public boolean screenOpen() {
         MinecraftClient client = runningClient();
         return client != null && client.currentScreen != null;

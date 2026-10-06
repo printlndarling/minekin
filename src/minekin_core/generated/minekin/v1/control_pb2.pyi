@@ -359,3 +359,17 @@ class RespawnInput(_message.Message):
     generation: int
     deadline_monotonic_ns: int
     def __init__(self, action_id: _Optional[str] = ..., lease_id: _Optional[str] = ..., generation: _Optional[int] = ..., deadline_monotonic_ns: _Optional[int] = ...) -> None: ...
+
+class SayInput(_message.Message):
+    __slots__ = ("action_id", "lease_id", "generation", "deadline_monotonic_ns", "text")
+    ACTION_ID_FIELD_NUMBER: _ClassVar[int]
+    LEASE_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    DEADLINE_MONOTONIC_NS_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    action_id: str
+    lease_id: str
+    generation: int
+    deadline_monotonic_ns: int
+    text: str
+    def __init__(self, action_id: _Optional[str] = ..., lease_id: _Optional[str] = ..., generation: _Optional[int] = ..., deadline_monotonic_ns: _Optional[int] = ..., text: _Optional[str] = ...) -> None: ...

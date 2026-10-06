@@ -41,6 +41,11 @@ public final class HandshakeGate {
     public static final String HOTBAR_CAPABILITY = "control.hotbar.v1";
     public static final String SCREEN_CAPABILITY = "control.screen.v1";
     public static final String RESPAWN_CAPABILITY = "control.respawn.v1";
+    // Sending one chat line as the Kin. Its own capability because speaking into
+    // the world is a different consent from acting in it: a session that lets the
+    // Kin steer and dig is not thereby a session that lets it talk to whoever is
+    // listening, and the negotiation is where that consent is given.
+    public static final String SAY_CAPABILITY = "control.chat.v1";
     public static final String GUI_CAPABILITY = "control.gui.v1";
     public static final String OBSERVE_WORLD_CAPABILITY = "observe.world.v1";
     // And publishing the world this client is hosting. Not an input skill, so not

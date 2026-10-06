@@ -288,3 +288,23 @@ message RespawnInput {
   uint64 generation = 3;
   uint64 deadline_monotonic_ns = 4;
 }
+
+// One chat line the Kin chose to say, sent through the client's own chat path
+// (the same call the keyboard's send makes) -- never a command, because a
+// leading "/" would be the client executing something rather than speaking.
+//
+// The words are the Kin's: theirs to mean, so the Bridge refuses an over-long
+// line by name instead of clipping it (unlike a *heard* line, which arrives
+// clipped as a best-effort memory of what someone else said -- the asymmetry
+// is deliberate: the listener preserves, the speaker must mean its words).
+// The bound is 256 characters, the same cap the observation side carries; an
+// empty or blank line is not speech and is refused too. The send gives no
+// server acknowledgement -- what this message can be confirmed by is the
+// client accepting the line, and nothing stronger is ever claimed.
+message SayInput {
+  string action_id = 1;
+  string lease_id = 2;
+  uint64 generation = 3;
+  uint64 deadline_monotonic_ns = 4;
+  string text = 5;
+}

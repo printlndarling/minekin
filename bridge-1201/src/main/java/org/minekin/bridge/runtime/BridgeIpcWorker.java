@@ -32,6 +32,7 @@ import io.minekin.protocol.v1.ReleaseAllInputs;
 import io.minekin.protocol.v1.ResourcePackPolicy;
 import io.minekin.protocol.v1.ScreenInput;
 import io.minekin.protocol.v1.RespawnInput;
+import io.minekin.protocol.v1.SayInput;
 import io.minekin.protocol.v1.UseInput;
 import io.minekin.protocol.v1.WorldObservation;
 import java.io.IOException;
@@ -86,6 +87,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public static final String HOTBAR_SELECT_INPUT_TYPE = "minekin.v1.HotbarSelectInput";
     public static final String SCREEN_INPUT_TYPE = "minekin.v1.ScreenInput";
     public static final String RESPAWN_INPUT_TYPE = "minekin.v1.RespawnInput";
+    public static final String SAY_INPUT_TYPE = "minekin.v1.SayInput";
     public static final String GUI_CLICK_INPUT_TYPE = "minekin.v1.GuiClickInput";
     public static final String WORLD_OBSERVATION_TYPE = "minekin.v1.WorldObservation";
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
@@ -333,6 +335,10 @@ public final class BridgeIpcWorker implements AutoCloseable {
         }
         if (message instanceof RespawnCommand respawn) {
             applyRespawn(respawn);
+            return true;
+        }
+        if (message instanceof SayCommand say) {
+            applySay(say);
             return true;
         }
         if (message instanceof ScreenCommand screen) {
@@ -664,6 +670,76 @@ public final class BridgeIpcWorker implements AutoCloseable {
         // run of 2026-10-05 confirmed the respawn from the world's next frame while
         // this file stayed silent about it, which is one evidence path too few.
         LOGGER.info("bridge applied respawn {} (visible button)", value.getActionId());
+    }
+
+    /** The longest chat line the Bridge will send, the same cap the observation side carries. */
+    static final int SAY_MAX_CHARS = 256;
+
+    /**
+     * Why a line cannot be sent as speech, or "" when it can.
+     *
+     * <p>A blank line is not speech, and a leading slash is not speech either: the
+     * server parses chat content into commands, so "/..." arriving through the chat
+     * path is the client executing something rather than talking. The check ignores
+     * leading spaces because the server's own parser does. A line past the cap is
+     * refused rather than clipped — the words are the Kin's to mean, and silently
+     * shortening what it said would put words in its mouth the model never chose
+     * (the asymmetry with *heard* lines, which arrive clipped, is deliberate: the
+     * listener preserves best-effort, the speaker must mean its words).
+     */
+    static String sayRefusal(String text) {
+        if (text == null || text.isBlank()) {
+            return "SAY_TEXT_EMPTY";
+        }
+        if (text.length() > SAY_MAX_CHARS) {
+            return "SAY_TEXT_TOO_LONG";
+        }
+        if (text.stripLeading().startsWith("/")) {
+            return "SAY_TEXT_IS_A_COMMAND";
+        }
+        return "";
+    }
+
+    /**
+     * One chat line, sent through the client's own send path the way the keyboard's
+     * send is. The content is deliberately not logged here: the words live in Core's
+     * own ledger, and a second copy in the Bridge log would be a second place they
+     * could drift from what was said. What this file can confirm is that the client
+     * accepted the line; the world gives no acknowledgement of speech, and nothing
+     * stronger is ever claimed.
+     */
+    private void applySay(SayCommand command) {
+        BridgeInputController controller = input;
+        if (controller == null) {
+            return;
+        }
+        SayInput value = command.value();
+        String refusal = sayRefusal(value.getText());
+        if (!refusal.isEmpty()) {
+            publishResult(value.getActionId(), value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED, refusal);
+            LOGGER.warn("bridge refused say {}: {}", value.getActionId(), refusal);
+            return;
+        }
+        BridgeInputController.Outcome guard = controller.preflight(
+                monotonicNow(), command.deadlineNanos(), value.getGeneration(), false);
+        if (!guard.applied()) {
+            publishResult(value.getActionId(), value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED, guard.refusalCode());
+            LOGGER.warn("bridge refused say {}: {}", value.getActionId(), guard.refusalCode());
+            return;
+        }
+        WorldClientView view = worldView;
+        if (view == null || !view.inWorld() || !view.say(value.getText())) {
+            publishResult(value.getActionId(), value.getGeneration(),
+                    ActionStatus.ACTION_STATUS_FAILED, "SAY_UNAVAILABLE");
+            LOGGER.warn("bridge refused say {}: SAY_UNAVAILABLE", value.getActionId());
+            return;
+        }
+        publishResult(value.getActionId(), value.getGeneration(),
+                ActionStatus.ACTION_STATUS_STARTED, "");
+        LOGGER.info("bridge said one chat line {} ({} chars)",
+                value.getActionId(), value.getText().length());
     }
 
     private void applyScreen(ScreenCommand command) {
@@ -1124,6 +1200,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
                 MINE_INPUT_TYPE,
                 HOTBAR_SELECT_INPUT_TYPE,
                 RESPAWN_INPUT_TYPE,
+                SAY_INPUT_TYPE,
                 SCREEN_INPUT_TYPE,
                 GUI_CLICK_INPUT_TYPE);
     }
@@ -1353,6 +1430,14 @@ public final class BridgeIpcWorker implements AutoCloseable {
                         command.getActionId(), command.getGeneration(),
                         command.getDeadlineMonotonicNs(), envelope.getMonotonicNs(),
                         deadline -> new RespawnCommand(command, deadline), "RespawnInput");
+            } else if (SAY_INPUT_TYPE.equals(envelope.getMessageType())) {
+                SayInput command = SayInput.parseFrom(envelope.getPayload());
+                validateSay(command);
+                handleActionOrRefuseCapability(
+                        state, HandshakeGate.SAY_CAPABILITY,
+                        command.getActionId(), command.getGeneration(),
+                        command.getDeadlineMonotonicNs(), envelope.getMonotonicNs(),
+                        deadline -> new SayCommand(command, deadline), "SayInput");
             } else if (SCREEN_INPUT_TYPE.equals(envelope.getMessageType())) {
                 ScreenInput command = ScreenInput.parseFrom(envelope.getPayload());
                 validateScreen(command);
@@ -1724,6 +1809,16 @@ public final class BridgeIpcWorker implements AutoCloseable {
         }
     }
 
+    static void validateSay(SayInput command) {
+        // The text is checked where it is applied, not here: a blank or command-like
+        // line is a fact Core should see by name in the ActionResult, not a protocol
+        // violation that kills the session.
+        if (!identityOk(command.getActionId(), command.getLeaseId(), command.getGeneration())
+                || command.getDeadlineMonotonicNs() == 0) {
+            throw new IllegalArgumentException("SayInput violates negotiated input bounds");
+        }
+    }
+
     /** A screen control that names no action this build can take is a command with no meaning. */
     static void validateScreen(ScreenInput command) {
         io.minekin.protocol.v1.ScreenControl control = command.getControl();
@@ -1932,6 +2027,7 @@ public final class BridgeIpcWorker implements AutoCloseable {
                     HotbarSelectCommand,
                     ScreenCommand,
                     RespawnCommand,
+                    SayCommand,
                     GuiClickCommand {}
 
     public enum Notice implements ClientMessage {
@@ -1980,6 +2076,8 @@ public final class BridgeIpcWorker implements AutoCloseable {
     public record ScreenCommand(ScreenInput value, long deadlineNanos) implements ClientMessage {}
 
     public record RespawnCommand(RespawnInput value, long deadlineNanos) implements ClientMessage {}
+
+    public record SayCommand(SayInput value, long deadlineNanos) implements ClientMessage {}
 
     public record GuiClickCommand(
             GuiClickInput value, long deadlineNanos) implements ClientMessage {}

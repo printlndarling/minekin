@@ -49,6 +49,14 @@ public interface WorldClientView {
     /** Presses only the currently enabled visible vanilla respawn button. */
     boolean respawn();
 
+    /**
+     * Sends one chat line through the client's own send call the way the keyboard's
+     * send is. The words are the Kin's; the caller refuses the lines that are not
+     * speech (blank, past the cap, or a command) before they reach here, and this
+     * answers whether the client was in a world able to send at all.
+     */
+    boolean say(String text);
+
     /** Whether a screen currently holds the keyboard. */
     boolean screenOpen();
 

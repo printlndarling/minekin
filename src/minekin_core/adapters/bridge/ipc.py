@@ -45,6 +45,8 @@ from minekin_core.domain.control_vocabulary import (
     RELEASE_ALL_INPUTS_TYPE,
     RESPAWN_CAPABILITY,
     RESPAWN_INPUT_TYPE,
+    SAY_CAPABILITY,
+    SAY_INPUT_TYPE,
     SCREEN_CAPABILITY,
     SCREEN_INPUT_TYPE,
     USE_CAPABILITY,
@@ -111,6 +113,7 @@ _CONTROL_TYPES: Final = {
     HOTBAR_SELECT_INPUT_TYPE: control_pb2.HotbarSelectInput,
     SCREEN_INPUT_TYPE: control_pb2.ScreenInput,
     RESPAWN_INPUT_TYPE: control_pb2.RespawnInput,
+    SAY_INPUT_TYPE: control_pb2.SayInput,
     GUI_CLICK_INPUT_TYPE: control_pb2.GuiClickInput,
     OPEN_LAN_TYPE: control_pb2.OpenLan,
     HEARTBEAT_TYPE: session_pb2.Heartbeat,
@@ -131,6 +134,7 @@ _CONTROL_CAPABILITIES: Final = {
     HOTBAR_SELECT_INPUT_TYPE: HOTBAR_CAPABILITY,
     SCREEN_INPUT_TYPE: SCREEN_CAPABILITY,
     RESPAWN_INPUT_TYPE: RESPAWN_CAPABILITY,
+    SAY_INPUT_TYPE: SAY_CAPABILITY,
     GUI_CLICK_INPUT_TYPE: GUI_CAPABILITY,
     # Publishing a world is a lifecycle change to the server in the client's own
     # process, so it is gated like an input skill rather than assumed.

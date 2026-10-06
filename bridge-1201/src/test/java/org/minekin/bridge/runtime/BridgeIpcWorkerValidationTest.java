@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.minekin.protocol.v1.ConnectWorld;
 import io.minekin.protocol.v1.RespawnInput;
+import io.minekin.protocol.v1.SayInput;
 import io.minekin.protocol.v1.LookInput;
 import io.minekin.protocol.v1.MoveInput;
 import io.minekin.protocol.v1.ReleaseAllInputs;
@@ -277,6 +278,36 @@ final class BridgeIpcWorkerValidationTest {
     }
 
     @Test
+    void sayRequiresBoundedIdentityGenerationAndADeadline() {
+        SayInput valid = SayInput.newBuilder()
+                .setActionId("say-1").setLeaseId("lease-1")
+                .setGeneration(1).setDeadlineMonotonicNs(10_000).setText("hello").build();
+        assertDoesNotThrow(() -> BridgeIpcWorker.validateSay(valid));
+        for (SayInput invalid : new SayInput[] {
+            valid.toBuilder().setActionId("").build(),
+            valid.toBuilder().setLeaseId("").build(),
+            valid.toBuilder().setGeneration(0).build(),
+            valid.toBuilder().setDeadlineMonotonicNs(0).build()
+        }) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> BridgeIpcWorker.validateSay(invalid));
+        }
+    }
+
+    @Test
+    void aSayLineIsRefusedUnlessItIsSpeech() {
+        assertEquals("", BridgeIpcWorker.sayRefusal("hello there"));
+        assertEquals("", BridgeIpcWorker.sayRefusal("  leading spaces are still speech"));
+        assertEquals("", BridgeIpcWorker.sayRefusal("x".repeat(BridgeIpcWorker.SAY_MAX_CHARS)));
+        assertEquals("SAY_TEXT_EMPTY", BridgeIpcWorker.sayRefusal("   "));
+        assertEquals("SAY_TEXT_EMPTY", BridgeIpcWorker.sayRefusal(null));
+        assertEquals("SAY_TEXT_TOO_LONG",
+                BridgeIpcWorker.sayRefusal("x".repeat(BridgeIpcWorker.SAY_MAX_CHARS + 1)));
+        assertEquals("SAY_TEXT_IS_A_COMMAND", BridgeIpcWorker.sayRefusal("/kill"));
+        assertEquals("SAY_TEXT_IS_A_COMMAND", BridgeIpcWorker.sayRefusal("   /tp 0 0"));
+    }
+
+    @Test
     void everyInputTypeTheControlLoopDispatchesIsAllowedOnTheControlChannel() {
         // One entry per dispatch branch in `heartbeatLoop`. A bounds check that passes
         // is not enough: a type the loop handles but the envelope allowlist omits is
@@ -302,6 +333,7 @@ final class BridgeIpcWorkerValidationTest {
                                         BridgeIpcWorker.MINE_INPUT_TYPE,
                                         BridgeIpcWorker.HOTBAR_SELECT_INPUT_TYPE,
                                         BridgeIpcWorker.RESPAWN_INPUT_TYPE,
+                                        BridgeIpcWorker.SAY_INPUT_TYPE,
                                         BridgeIpcWorker.SCREEN_INPUT_TYPE,
                                         BridgeIpcWorker.GUI_CLICK_INPUT_TYPE)));
     }
