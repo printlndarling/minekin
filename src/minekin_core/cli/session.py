@@ -161,7 +161,7 @@ from minekin_core.domain.lease_watchdog import LeaseWatchdog
 from minekin_core.domain.model_access import cost_ledger_for, model_config
 from minekin_core.domain.model_usage import ModelUsageTotals
 from minekin_core.domain.perception import WorldObservationValue
-from minekin_core.domain.recovery import START_CLIENT
+from minekin_core.domain.recovery import INPUT_LEASE, START_CLIENT
 from minekin_core.domain.session_material import RecordedSessionMaterial
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
 from minekin_core.domain.time import Deadline, MonotonicInstant
@@ -897,6 +897,11 @@ class InputPlan:
     playable: asyncio.Event = field(default_factory=asyncio.Event)
     deadline_monotonic_ns: int = 0
     action_id: str = ""
+    #: The outbox item that carries this lease as an effect (§8). Open while the
+    #: client may be holding keys, settled once the release has gone out: a crash
+    #: in between is what the next start's reconciliation invalidates, because a
+    #: replayed lease is a second set of keypresses nobody asked for.
+    lease_effect_id: str = ""
     # The arbiter's own words for why no lease was granted, when it refused.
     # Kept rather than dropped: a run that was asked to walk and did not is a
     # fact about the run, and the reason is the only part of it worth having.
@@ -1507,6 +1512,15 @@ async def start_and_supervise(
             await record_refusal(phase, granted.refusals)
             return
         plan.action_id = OpaqueId.new().value
+        # §8 for the lease: the intent is on the ledger before the first command
+        # that carries it, so a crash with the keys down leaves something for the
+        # next start to close rather than an input nobody recorded. Opened after
+        # the grant and before the sends; settled by the release, or by the
+        # early returns below when nothing ever went out.
+        plan.lease_effect_id = await prepared.ledger.open_effect(
+            effect_type=INPUT_LEASE, idempotency_key=lease.lease_id
+        )
+        sent_any = False
         for capability, message_type, message in plan.commands(lease, deadline):
             # Authorised one capability at a time, at this instant: the arbiter
             # answers for an action, so a plan that asks for two things is two
@@ -1521,6 +1535,12 @@ async def start_and_supervise(
                 now=MonotonicInstant(issued),
             )
             if not authorised.accepted:
+                # A refusal before any command left is an attempt with a result,
+                # so the intent closes here; once something is on the wire the
+                # item stays open until the release says the keys may be up.
+                if not sent_any and plan.lease_effect_id:
+                    await prepared.ledger.settle_effect(plan.lease_effect_id)
+                    plan.lease_effect_id = ""
                 await record_refusal(phase, authorised.refusals)
                 return
             try:
@@ -1529,8 +1549,12 @@ async def start_and_supervise(
                 # The transport went while the session was being made playable. The
                 # run is over by another road, and a ledger entry here would record
                 # a grant that never reached the client.
+                if not sent_any and plan.lease_effect_id:
+                    await prepared.ledger.settle_effect(plan.lease_effect_id)
+                    plan.lease_effect_id = ""
                 plan.refusal = "CONTROL_CHANNEL_LOST"
                 return
+            sent_any = True
             await record(
                 INPUT_LEASE_GRANTED,
                 {
@@ -1595,6 +1619,13 @@ async def start_and_supervise(
             source=EventSource.CORE,
             trust_class=TrustClass.CORE,
         )
+        # §8's other half: the lease's intent closes only once the release has
+        # gone out. A send that raised above left it open on purpose — the
+        # client may still be holding keys, and the next start's reconciliation
+        # is the thing that may say so.
+        if plan is not None and plan.lease_effect_id:
+            await prepared.ledger.settle_effect(plan.lease_effect_id)
+            plan.lease_effect_id = ""
         return outcome
 
     async def until_input_release() -> None:

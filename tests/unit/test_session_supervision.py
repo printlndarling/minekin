@@ -308,6 +308,19 @@ def _ledger_rows(database: Path) -> list[tuple[str, str, str]]:
     return [(str(row[0]), str(row[1]), str(row[2])) for row in rows]
 
 
+def _outbox_rows(database: Path) -> list[tuple[str, str]]:
+    """Effect type and status, in the order the ledger's outbox holds them."""
+
+    connection = sqlite3.connect(database)
+    try:
+        rows = connection.execute(
+            "SELECT effect_type, status FROM outbox ORDER BY rowid"
+        ).fetchall()
+    finally:
+        connection.close()
+    return [(str(row[0]), str(row[1])) for row in rows]
+
+
 def _ledger_transitions(database: Path) -> list[tuple[str, str]]:
     connection = sqlite3.connect(database)
     try:
@@ -2037,6 +2050,41 @@ def test_a_run_that_was_never_asked_still_releases_on_the_way_out(
     assert _answer(run_root(root)) is None
 
 
+def test_the_lease_effect_lives_only_as_long_as_the_keys_can(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """§8 for the one effect whose replay is a keypress nobody asked for.
+
+    Recovery's table marks `INPUT_LEASE` INVALIDATE — a replayed lease is a
+    second set of keypresses — and that decision can only ever be reached if
+    the intent is on the ledger *while the keys are down*: a crash that leaves
+    the client holding input has to leave something for the next start to
+    close. It is settled once the release has gone out and not before, because
+    until then the honest answer to "may it still be held" is yes.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+
+    async def scenario() -> tuple[SessionRun, list[tuple[str, str]]]:
+        held = await _run_holding_the_input(root)
+        # The move is on the wire (the helper waited for it), so this is the
+        # ledger as it stands with the lease in the client's hands.
+        while_held = _outbox_rows(held.database)
+        held.process.exited = True
+        _launch, run = await asyncio.wait_for(held.running, 10)
+        await close_writers(held.control_writer, held.event_writer)
+        return run, while_held
+
+    run, while_held = asyncio.run(scenario())
+
+    assert ("INPUT_LEASE", "pending") in while_held
+    # ...and the wind-down's release, having gone out, closed it: nothing about
+    # those keys is left for the next start to replay or to invalidate.
+    assert ("INPUT_LEASE", "completed") in _outbox_rows(database)
+    assert run.outcome is SessionOutcome.CLIENT_EXITED
+
+
 def test_a_session_holding_nothing_answers_that_instead_of_sending(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
@@ -2106,3 +2154,7 @@ def test_a_release_the_channel_refuses_leaves_no_answer(tmp_path: Path, monkeypa
     assert attempts
     assert _answer(runs) is None
     assert run.release_failed is True
+    # The release never reached the Bridge, so the lease's effect is left open
+    # on purpose: whether those keys are still down is exactly the question the
+    # next start's reconciliation has to answer.
+    assert ("INPUT_LEASE", "pending") in _outbox_rows(root / "kin" / "kin-01" / "kin.sqlite3")

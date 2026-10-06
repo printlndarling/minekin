@@ -1294,3 +1294,31 @@ MINEKIN_DEMO_VOLUME=minekin-local-demo2 MINEKIN_DEMO_KIN=kin-3x3-fresh-20261002 
 5. `00:01:20` **`minekin was slain by Slime`** —— 等待/瞄准期间被史莱姆打掉的血把 Kin 打死；步结果 `INTERRUPTED / PLAYER_DEAD`。
 
 **按实登记**：**握持机制（选表、按下标、切至手）已在活体行使并留下客户端逐字读数**；`details.weapon` 的 CONFIRMED 行仍缺，因为挥击未落地且步未确认。两个**具名战斗质量缺口**由此成为下一张卡的输入：①**按门与跳动靶**——按下瞬间的准星点名失败是当前的命中瓶颈（"按住期间每帧重瞄"救不了按下帧本身；是否在有界窗内允许有限次重按是产品决定）；②**交战节奏**——站在 3 格圈里等/瞄的数秒里换血是负交换（对 16HP 大史莱姆石斧 9/击本应两击收口，但首个按下就被跳开）。**不声明**：击杀/挥击 CONFIRMED 读数仍缺；近身 143 族已在六之三十五更正，与本发无关（本发死亡是 `Slain by Slime`，真实的游戏死亡）。
+
+## 六之四十一、S0-C 两格补齐：仍存活客户端的 watchdog 松键，与非空失效的显式恢复（2026-10-06，普通运行记录、非 sealed）
+
+`D-SESSION-RECOVERY-001` 的两格活体读数本发到手，另修掉一个让第二格在代码里无法出现的真实缺口。
+
+**一、仍存活客户端的断连/watchdog 松键（静默探针）。** run `a12f73f67e1d4276ae947d7362f69b96`（卷 `minekin-local-demo`，kin `kin-local-demo`，scripted hold/look 14s + turn 45°，`MINEKIN_DOMAIN_SILENCE=1`——harness 在 Kin 走动后给 Core 整进程 SIGSTOP，会话本身存活）。客户端 `latest.log` 逐字：
+
+```
+[00:20:32] bridge pressed move.forward
+[00:20:32] bridge applied 53bd95e6…: holding [move.forward]
+[00:20:32] bridge turned the view by 45.0 yaw, 0.0 pitch degrees
+[00:20:35] bridge released move.forward
+[00:20:35] bridge released input after TIMEOUT          ← Bridge 自己的 watchdog（3×500ms）
+[00:20:39] bridge released 0 input(s) after CORE_REQUEST (EXPLICIT)
+```
+
+- `00:20:35` 那条是 **Bridge 本地 watchdog 的松键**：Core 无声，没有任何人告诉它松键（契约 §12 的最终保障）。harness 的走动等待以"先静默、后停下"为门（`silenced=1` 才计数），同发逐字打出 `domain: the server saw the Kin walk and stop`；
+- `00:20:39` 的那条是**恢复后的 Core 自己**发的显式释放：晚到 4 秒、释放 0 个输入——**先松键的是 watchdog，不是 Core**，这一对照就是本格的判据；
+- 全程客户端日志零 `failing closed`、零 `Disconnected`/`lost connection`：**客户端活着**；收尾 `release released:[183]/unconfirmed:[]`、`outcome STOPPED_ON_REQUEST`、`input_release_failed:false`，`client_exit_code 143` 是 harness 对 scripted run 收尾的自停（既定形状）。
+
+**二、非空失效的显式恢复。** 先修缺口：§8 的 outbox 承诺（"先记意图、再做效果"）此前**只有 `START_CLIENT` 一个效果真的开过**（`kin-local-demo` 全部 17 行 outbox 皆然；恢复表的 `INPUT_LEASE` INVALIDATE 行只有单测在空转）——也就是说"持键中崩溃"对 reconcile 结构性不可见。修复（本发提交）：`present_the_plan` 在发第一条租约命令**之前** `open_effect(INPUT_LEASE, idempotency_key=lease_id)`，由 `release_inputs` 在释放真正发出后 settle（发送抛错则**有意留开**——键可能还在按住；任何命令都未发出而被拒/断的早退则当场 settle）。先红后绿：RED 时逐字 `assert ('INPUT_LEASE', 'pending') in [('START_CLIENT', 'completed')]`；新增两钉（持键中 pending/收尾后 completed；释放未发出的场景故意留 pending），并给 `test_a_release_the_channel_refuses_leaves_no_answer` 补上留开断言。CI 门（uv 口径）：pyright 0/0/0、ruff 0、format 512 干净、pytest 4139 passed / 2 skipped。
+
+活体两连跑（卷 `minekin-local-demo2`，kin `kin-3x3-fresh-20261002`，候选 bundle profile）：
+
+1. **A（`c050372f4f204d54bd010cbf50753172`，`MINEKIN_DOMAIN_KILL_CORE=1`，持键 14s 中 SIGKILL runtime）**：harness 逐字 `the runtime is gone; the Bridge should let go`、`the Kin left the game after the Core was killed`；客户端逐字 `bridge is failing closed (IPC_LOST)`、`bridge released move.forward`、`bridge released 1 input(s) after IPC_LOST`、`bridge is cancelling the client's connection`（socket 真断，IPC_LOST 松键）。被杀 run 在账本上留下的逐字：`outbox 0c8a144eb684468fa389b6801ff32e0b | INPUT_LEASE | pending | 2f15bb1c1e75466180f14dc3540c1819`。
+2. **B（`ef7a63ea28884d24b89243853279ccb4`，同根干净重启）**：run document 逐字 `"recovery": {"invalidated": ["0c8a144eb684468fa389b6801ff32e0b"], "schema_version": 1, "status": "reconciled", "waiting": []}`——**非空 `invalidated`，且 id 与被杀发留下的那行完全同一**；该行随后 `completed`。B 自身正常跑完：走动、`release released:[178]/unconfirmed:[]`、`STOPPED_ON_REQUEST`。被杀客户端的 process 标记按 `/proc` 判为已死，新 run 未被 `OLD_CLIENT_UNPROVEN` 拒。
+
+**按实/不声明**：四路区分（正常 stop／重启核对／异常断连／非空失效恢复）至此四格皆有本构建活体读数，其中"异常断连"现有两枚形状（IPC_LOST 松键、仍存活客户端 watchdog 松键）；不据此改判 PROCESS-RECOVERY-001（残留进程自动处置仍是 BLOCKED_DECISION，只检测/报告）。普通运行记录、非 sealed；`INPUT_LEASE` 的 RELEASE_ALL/CONNECT_WORLD 等其它效果行仍无活体开单者，保留具名待办。保留具名缺口：运行中的计划与 stop watcher 未赛跑（追加五登记），列为下一卡。
