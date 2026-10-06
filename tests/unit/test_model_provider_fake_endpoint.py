@@ -1029,6 +1029,28 @@ def test_a_timeout_is_retried_once_and_the_record_carries_the_attempts(
     assert record.elapsed_ms is not None and record.elapsed_ms >= 80
     # The first attempt died awaiting the response head; that phase is what the record names.
     assert record.phase == "open"
+    # The ask's own size rides on the record too, against the endpoint's own view
+    # of the wire: a stall can then be argued about with numbers instead of guesses.
+    assert record.request_bytes == len(endpoint.arrivals[-1].body.encode("utf-8"))
+
+
+def test_every_record_names_the_size_of_the_ask(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """A successful call's record carries the request size, checked against the
+    bytes the endpoint actually received — the diagnostic a stall investigation
+    needs and the one that was missing while four runs stalled at ~41 seconds."""
+
+    endpoint = serve(Behavior(body=decision_content("chop_tree", "sized")))
+    provider = OpenAICompatibleProvider(config_for(endpoint, timeout_ms=2_000), environment())
+
+    answered = provider.decide(offer())
+
+    assert isinstance(answered, Decision)
+    record = provider.ledger.records[-1]
+    assert record.request_bytes == len(endpoint.arrivals[-1].body.encode("utf-8"))
+    document = record.as_document()
+    assert document["request_bytes"] == record.request_bytes
 
 
 def test_exhausted_attempts_stop_the_call_with_the_diagnostics_recorded(

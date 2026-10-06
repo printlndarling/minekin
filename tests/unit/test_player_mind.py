@@ -3050,6 +3050,9 @@ def test_the_document_carries_the_newest_model_call_redacted_diagnostics() -> No
         "timeout_ms": 8000,
         "elapsed_ms": 16012,
         "phase": "open",
+        # The ask's own size rides in the diagnostics now, so a stall can be
+        # argued about with numbers; this call did not record one.
+        "request_bytes": None,
     }
 
     fresh, _ = mind_with()

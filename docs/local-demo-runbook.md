@@ -1475,3 +1475,9 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **同发暴露并修复的第二个召回缺陷（先红后绿）**：`skipped_unreadable: 45`——扫描窗里大量旧行（脚本计划/战斗探针）的理由是长自由文本、超 240 字符界，被**整行丢弃**成"不可读"。真实历史因显示界而丢失（"unreadable"名不副实）。修正：**长理由截断携带**（`reason[:239] + "…"`，界仍成立、行不再丢，`skipped_unreadable` 归零）；`skill/result` 仍严格界（短令牌，超界即畸形）。旧测试按其设计意图改写为"截断而非丢弃"（RED→GREEN）。8 测试绿、邻套件 190 绿；门（uv）：pyright 0/0/0、ruff 0、format 515、全仓 pytest 绿。
 
 **run 本体的按实读数**：`break_seen_block`→`collect_dropped`→`craft_take_result`（木板）三段 CONFIRMED（`source: model`），第 4 次决策 41.7s 端点停滞按名 `TIMEOUT`（calls 4、spent 61）；收尾 `released:[205]/unconfirmed:[]`、`STOPPED_ON_REQUEST`、`release_failed:false`。端点窗口本日总体上"2-3 步后 41s 停滞"的节奏未变；3×3 仍差"立桌（`use_target`）→开窗→3×3 合成"末段。
+
+## 六之五十四、每条模型调用记录带上"这次问了多大"（2026-10-06，单元面交付）
+
+**动机（活体读数逼出来的诊断缺格）**：本日四发模型跑的停车形状一致——`phase:"open"`、两次尝试合计约 41.6s、**零响应头**；而单发探针多数在数秒内成功（偶发两种：8.9s 超预算但重试即成，或两次全超）。要论证"停滞是否与请求体积相关"（对象：逐发增长的摘要——本轮起还多了 `goal_history` 记录），账本里必须先有**每次问了多少字节**这个数。
+
+**交付（先红后绿）**：`CostRecord.request_bytes`（`record_call` 同步）；适配器在序列化 body 处取 `len(body)`，**成功/被拒/超时/传输失败各路径都落账**（失败经 `_CallFailed.request_bytes` 带出）；诊断文本原样（只加数字）；`last_model_call`、run document、账本投影随之携带。**测试**：成功调用的 `request_bytes` 逐字等于假端点**实际收到**的 body 字节数；超时重试那发的记录同样核对该相等（端点自己的视角钉住）；账本"无文本字段"不变式钉更新（新字段仍是数字）。调试中按实登记：`_account` 的签名更新漏了一处导致 30 红——修后全绿；字段形状钉与 mind 文档钉各按其设计意图更新。门（uv）：pyright 0/0/0、ruff 0、format 515、全仓 **4175 passed / 2 skipped**。**下一发真正停滞的读数将带字节数**——停滞与体积的相关性从此可用数字论证而不是猜。

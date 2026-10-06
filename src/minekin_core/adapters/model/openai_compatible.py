@@ -175,6 +175,7 @@ class _CallFailed(Exception):
         phase: str,
         elapsed_ms: int,
         timeout_ms: int,
+        request_bytes: int | None = None,
     ) -> None:
         super().__init__(reason.value)
         self.reason = reason
@@ -182,6 +183,7 @@ class _CallFailed(Exception):
         self.phase = phase
         self.elapsed_ms = elapsed_ms
         self.timeout_ms = timeout_ms
+        self.request_bytes = request_bytes
 
 
 def _non_negative_int(value: object) -> int | None:
@@ -356,11 +358,12 @@ class OpenAICompatibleProvider:
         call_started = time.monotonic()
         attempts = 0
         last_phase: str | None = None
+        request_bytes: int | None = None
         try:
             while True:
                 attempts += 1
                 try:
-                    status, payload = self._exchange(request, key)
+                    status, payload, request_bytes = self._exchange(request, key)
                     break
                 except _CallFailed as failed:
                     last_phase = failed.phase
@@ -385,6 +388,7 @@ class OpenAICompatibleProvider:
                         attempts=attempts,
                         elapsed_ms=_elapsed_ms(call_started),
                         phase=failed.phase,
+                        request_bytes=failed.request_bytes,
                     )
                     logger.warning(
                         "model call failed: reason=%s status=%s attempts=%d phase=%s "
@@ -427,6 +431,7 @@ class OpenAICompatibleProvider:
                 attempts=attempts,
                 elapsed_ms=_elapsed_ms(call_started),
                 phase=last_phase,
+                request_bytes=request_bytes,
             )
             logger.warning(
                 "model reply unusable: reason=%s status=%d generation=%d",
@@ -456,6 +461,7 @@ class OpenAICompatibleProvider:
             attempts=attempts,
             elapsed_ms=_elapsed_ms(call_started),
             phase=last_phase,
+            request_bytes=request_bytes,
         )
         logger.info(
             "model call returned: status=%d prompt_tokens=%s completion_tokens=%s "
@@ -468,7 +474,7 @@ class OpenAICompatibleProvider:
         )
         return decision
 
-    def _exchange(self, request: DecisionRequest, key: str | None) -> tuple[int, bytes]:
+    def _exchange(self, request: DecisionRequest, key: str | None) -> tuple[int, bytes, int]:
         """Send one bounded request and return its status and bytes.
 
         Raises `_CallFailed` for every way an exchange can fail, carrying none of the other
@@ -476,6 +482,7 @@ class OpenAICompatibleProvider:
         """
 
         body = json.dumps(self._body(request)).encode("utf-8")
+        request_bytes = len(body)
         url = f"{self._config.base_url}{COMPLETIONS_PATH}"
         call = urllib.request.Request(url, data=body, method="POST")
         call.add_header("Accept", "application/json")
@@ -505,6 +512,7 @@ class OpenAICompatibleProvider:
                 phase=phase,
                 elapsed_ms=_elapsed_ms(started),
                 timeout_ms=timeout_ms,
+                request_bytes=request_bytes,
             )
 
         try:
@@ -535,7 +543,7 @@ class OpenAICompatibleProvider:
             raise failed(UnavailableReason.REDIRECTED, status, "status")
         if status >= 400:
             raise failed(UnavailableReason.PROVIDER_STATUS, status, "status")
-        return status, payload
+        return status, payload, request_bytes
 
     def _body(self, request: DecisionRequest) -> dict[str, object]:
         """The JSON body: this run's model name, and the request restated as data.
@@ -615,6 +623,7 @@ class OpenAICompatibleProvider:
         attempts: int | None = None,
         elapsed_ms: int | None = None,
         phase: str | None = None,
+        request_bytes: int | None = None,
     ) -> None:
         """Append the one record this call owes, priced from reported counts only.
 
@@ -638,4 +647,5 @@ class OpenAICompatibleProvider:
             timeout_ms=self._config.timeout_ms,
             elapsed_ms=elapsed_ms,
             phase=phase,
+            request_bytes=request_bytes,
         )

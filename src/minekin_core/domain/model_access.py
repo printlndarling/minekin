@@ -723,6 +723,10 @@ class CostRecord:
     timeout_ms: int | None = None
     elapsed_ms: int | None = None
     phase: str | None = None
+    #: How many bytes this side put on the wire for the call. Recorded even when the
+    #: call timed out, because that is the fact a stall window is argued about with:
+    #: the ask's size, this side's own number, no provider text.
+    request_bytes: int | None = None
 
     def as_document(self) -> dict[str, object]:
         return {
@@ -739,6 +743,7 @@ class CostRecord:
             "timeout_ms": self.timeout_ms,
             "elapsed_ms": self.elapsed_ms,
             "phase": self.phase,
+            "request_bytes": self.request_bytes,
         }
 
 
@@ -820,6 +825,7 @@ class CostLedger:
         timeout_ms: int | None = None,
         elapsed_ms: int | None = None,
         phase: str | None = None,
+        request_bytes: int | None = None,
     ) -> CostRecord:
         """Price what the provider reported and append it, in one step.
 
@@ -839,6 +845,7 @@ class CostLedger:
                 timeout_ms=timeout_ms,
                 elapsed_ms=elapsed_ms,
                 phase=phase,
+                request_bytes=request_bytes,
                 intent_generation=intent_generation,
                 outcome=outcome,
                 reason=reason,

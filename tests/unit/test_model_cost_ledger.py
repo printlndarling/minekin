@@ -330,6 +330,9 @@ def test_a_record_names_the_call_not_the_credential() -> None:
         "timeout_ms",
         "elapsed_ms",
         "phase",
+        # How many bytes this side put on the wire, so a stall window is argued
+        # about with numbers — still a number, so the no-text guarantee holds.
+        "request_bytes",
     }
     assert FAKE_KEY not in printed
     assert record.outcome is CallOutcome.OK
