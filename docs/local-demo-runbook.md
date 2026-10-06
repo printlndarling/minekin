@@ -1455,7 +1455,7 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 
 ## 六之五十二、十三步的深跑：模型亲手造出工作台，以及"目标域召回"的活体修正（2026-10-06，run `908e2129…`，普通运行记录、非 sealed）
 
-**run `908e2129018149fc8b00643ad10c3101`（run-168，修复后的第一发）是本项目迄今最深的一次模型自主跑：13 步里 12 CONFIRMED**（此前最好 3）：
+**run `908e2129018149fc8b00643ad10c3101`（run-168，修复后的第一发）：13 步里 11 CONFIRMED、1 INTERRUPTED、1 UNKNOWN。** 主控以只读卷上的同 run `SkillStepRecorded` 与 `AutonomousRunHalted.confirmed=11` 独立核对，纠正原文的 12；不由这次枚举推断“全项目迄今最好”。
 1-2. `break_seen_block`＋`collect_dropped` CONFIRMED（理由逐字含 oak→planks→pickaxe 链）。
 3. 第二根原木的 `break_seen_block` `INTERRUPTED/SKILL_PRECONDITION_CHANGED`（决策期间世界变了的失效闸，设计行为）。
 4. `craft_take_result` **oak_planks CONFIRMED**（`recipe_fill+result_quick_move`，修订→1856）。
