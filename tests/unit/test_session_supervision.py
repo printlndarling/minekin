@@ -35,6 +35,7 @@ from bridge_peer import (  # type: ignore[import-not-found]
 )
 from minekin_core.adapters.bridge import bootstrap as bootstrap_module
 from minekin_core.adapters.bridge.ipc import (
+    ACTION_RESULT_TYPE,
     AIM_INPUT_TYPE,
     BRIDGE_HELLO_TYPE,
     CANCEL_CONNECTION_TYPE,
@@ -80,6 +81,7 @@ from minekin_core.adapters.sqlite.session_log import (
     SESSION_INTERRUPTED,
     SESSION_STATE_TRANSITIONED,
 )
+from minekin_core.application.action_outcomes import ActionOutcomeRegistry
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.application.skill_plan import SkillPlan
 from minekin_core.application.world_skills import SkillCall
@@ -2310,6 +2312,8 @@ def test_the_lease_effect_lives_only_as_long_as_the_keys_can(
 
 def _start_connect_scenario(
     root: Path,
+    *,
+    action_outcomes: ActionOutcomeRegistry | None = None,
 ) -> tuple[asyncio.Task[tuple[SessionLaunch, SessionRun]], LiveProcess, ProcessSupervisor]:
     """Start a session up to the point where its connect command is on the wire.
 
@@ -2331,6 +2335,7 @@ def _start_connect_scenario(
             handshake_timeout=5.0,
             exit_poll_s=0.01,
             server_profile=SERVER_PROFILE,
+            action_outcomes=action_outcomes,
         )
     )
     return running, process, supervisor
@@ -2527,6 +2532,87 @@ def test_a_connection_that_ends_closes_the_attempts_effect(
     closed = asyncio.run(scenario())
 
     assert ("CONNECT_WORLD", "completed") in closed
+
+
+def test_the_bridges_own_answer_for_an_action_lands_in_the_registry(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The wiring the refused press needed: a Bridge ActionResult for one action id
+    becomes readable per-action, not just counted in aggregate.
+
+    Found by reading: the runtime counted `action_status_counts` and nothing kept
+    which action a status belonged to, so the skill that sent the swing could not
+    learn its press had been refused.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    registry = ActionOutcomeRegistry()
+
+    async def scenario() -> None:
+        running, process, _supervisor = _start_connect_scenario(root, action_outcomes=registry)
+        (
+            _descriptor,
+            bridge,
+            _control_reader,
+            control_writer,
+            event_writer,
+            command,
+        ) = await _connect_frame_reached(root, running)
+        for sequence, phase in enumerate(CONNECTED_PHASES, start=1):
+            await write_frame(
+                event_writer,
+                envelope(
+                    bridge,
+                    CONNECTION_LIFECYCLE_TYPE,
+                    envelope_pb2.CHANNEL_EVENT,
+                    sequence,
+                    _lifecycle(bridge, command, phase).SerializeToString(deterministic=True),
+                ),
+            )
+        await write_frame(
+            event_writer,
+            envelope(
+                bridge,
+                INITIAL_OBSERVATION_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                len(CONNECTED_PHASES) + 1,
+                first_snapshot(
+                    generation=bridge.generation, material=_material(root)
+                ).SerializeToString(deterministic=True),
+            ),
+        )
+        database = root / "kin" / "kin-01" / "kin.sqlite3"
+        await _wait_until(
+            lambda: any(row[0] == PLAYABLE_ESTABLISHED for row in _ledger_rows(database))
+        )
+        # The Bridge's own answer for one action: results are event-channel
+        # reports (`_EVENT_TYPES`), which is where the runtime reads them.
+        await write_frame(
+            event_writer,
+            envelope(
+                bridge,
+                ACTION_RESULT_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                len(CONNECTED_PHASES) + 2,
+                control_pb2.ActionResult(
+                    action_id="p" * 32,
+                    generation=bridge.generation,
+                    status=control_pb2.ACTION_STATUS_FAILED,
+                    reason_code="MINE_TARGET_NOT_AIMED",
+                ).SerializeToString(deterministic=True),
+            ),
+        )
+        await _wait_until(
+            lambda: registry.latest("p" * 32) == ("FAILED", "MINE_TARGET_NOT_AIMED"),
+            what="the bridge's answer to land in the registry",
+        )
+        process.exited = True
+        _launch, _run = await asyncio.wait_for(running, 10)
+        await close_writers(control_writer, event_writer)
+
+    asyncio.run(scenario())
+
+    assert registry.refused("p" * 32, "MINE_TARGET_NOT_AIMED")
 
 
 def test_a_session_holding_nothing_answers_that_instead_of_sending(

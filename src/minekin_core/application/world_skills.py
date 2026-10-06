@@ -36,6 +36,22 @@ from typing import Final, Protocol
 
 from google.protobuf.message import Message
 
+from minekin_core.application.action_outcomes import (
+    ACCEPTED as ACTION_ACCEPTED,
+)
+from minekin_core.application.action_outcomes import (
+    CANCELLED as ACTION_CANCELLED,
+)
+from minekin_core.application.action_outcomes import (
+    FAILED as ACTION_FAILED,
+)
+from minekin_core.application.action_outcomes import (
+    STARTED as ACTION_STARTED,
+)
+from minekin_core.application.action_outcomes import (
+    SUCCEEDED as ACTION_SUCCEEDED,
+)
+from minekin_core.application.action_outcomes import ActionOutcomeRegistry
 from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.domain.control_vocabulary import (
     AIM_CAPABILITY,
@@ -132,6 +148,10 @@ RETREAT_PATH_BLOCKED: Final[str] = "RETREAT_PATH_BLOCKED"
 FIGHT_SWING_SECONDS: Final[float] = 3.0
 FIGHT_SWING_MIN_SECONDS: Final[float] = 0.5
 FIGHT_SWING_MAX_SECONDS: Final[float] = 8.0
+#: How many presses one swing window may spend on a target that keeps dodging the
+#: press frame. The operator's decision (2026-10-06): a bounded re-press inside the
+#: window, and the bound's end concludes by the refusal's own name.
+FIGHT_MAX_PRESS_ATTEMPTS: Final[int] = 3
 
 #: The HUD line under which a fight breaks off: a body trading below it is the death the
 #: soaks died, so the swing releases and the next decision may leave instead. The mind
@@ -733,6 +753,7 @@ class WorldSkills:
         action_id: Callable[[], str] = lambda: OpaqueId.new().value,
         client_exit: Callable[[], int | None] = _client_still_running,
         stop_requested: Callable[[], bool] | None = None,
+        action_outcomes: ActionOutcomeRegistry | None = None,
     ) -> None:
         self._sender = sender
         self._observations = observations
@@ -743,6 +764,9 @@ class WorldSkills:
         #: nobody who could ask — the same shape `client_exit`'s default has for a
         #: caller that manages no process.
         self._stop_requested = stop_requested
+        #: The session's per-action outcomes, when the caller has one: the Bridge's
+        #: own answer for a press, which a swing reads before pressing again.
+        self._action_outcomes = action_outcomes
         self._body_start: ContextVar[int | None] = ContextVar("body_start", default=None)
 
     @asynccontextmanager
@@ -2196,13 +2220,28 @@ class WorldSkills:
                 action_id=action_id,
                 pre_tick=pre.game_tick,
             )
-        await self._swing_on_target(
+        swing_verdict, presses, press_refusals = await self._swing_on_target(
             action_id,
             authority,
             entity,
             swing_seconds=swing,
             deadline=deadline,
         )
+        if swing_verdict == "exhausted":
+            # Every bounded press was refused by the Bridge's own aim gate: the
+            # step concludes with the refusal's name and the attempt count.
+            return SkillOutcome(
+                result=ActionResultClass.FAILED,
+                reason="MINE_TARGET_NOT_AIMED",
+                action_id=action_id,
+                pre_tick=pre.game_tick,
+                details={
+                    "target": entity.entity_type,
+                    "swing_seconds": f"{swing:g}",
+                    "presses": str(presses),
+                    "press_refusals": str(press_refusals),
+                },
+            )
         post = await self._outlive_client(
             self._observations.wait_until(
                 lambda latest: (
@@ -2218,11 +2257,17 @@ class WorldSkills:
         )
         self.check_interruption(action_id)
         if post is None:
+            details: dict[str, str] = {}
+            if presses:
+                details["presses"] = str(presses)
+            if press_refusals:
+                details["press_refusals"] = str(press_refusals)
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
                 reason="FIGHT_NOT_CONFIRMED",
                 action_id=action_id,
                 pre_tick=pre.game_tick,
+                details=details,
             )
         if post.generation != authority.generation:
             return SkillOutcome(
@@ -2232,20 +2277,27 @@ class WorldSkills:
                 pre_tick=pre.game_tick,
                 post_tick=post.game_tick,
             )
+        confirmed_details = {
+            "target": entity.entity_type,
+            "swing_seconds": f"{swing:g}",
+            "newest_checked_tick": str(post.game_tick),
+            # The actual hand at the checked start of this action, not a catalog
+            # recommendation or a claim that a weapon caused the outcome.
+            "weapon": weapon_id,
+        }
+        # A fight that had to re-press says so: the refusals are why it may have
+        # taken more than one frame to get a swing away.
+        if presses:
+            confirmed_details["presses"] = str(presses)
+        if press_refusals:
+            confirmed_details["press_refusals"] = str(press_refusals)
         return SkillOutcome(
             result=ActionResultClass.CONFIRMED,
             reason="",
             action_id=action_id,
             pre_tick=pre.game_tick,
             post_tick=post.game_tick,
-            details={
-                "target": entity.entity_type,
-                "swing_seconds": f"{swing:g}",
-                "newest_checked_tick": str(post.game_tick),
-                # The actual hand at the checked start of this action, not a catalog
-                # recommendation or a claim that a weapon caused the outcome.
-                "weapon": weapon_id,
-            },
+            details=confirmed_details,
         )
 
     async def approach_entity(
@@ -2847,7 +2899,7 @@ class WorldSkills:
         *,
         swing_seconds: float,
         deadline: int,
-    ) -> None:
+    ) -> tuple[str, int, int]:
         """Hold the attack key on a moving target until it leaves the view or the window ends.
 
         A hostile that hops moves off a fixed ray within a second: measured live on the
@@ -2856,36 +2908,88 @@ class WorldSkills:
         slime was no longer under the crosshair. So the press is gated on the client's own
         crosshair reading naming THIS entity -- the phrase the wire already carries -- and
         while the key is held the aim is re-derived from every newer reading, because
-        tracking a hopping body is what a hand does with a mouse. The release goes through
-        the same named exit as every other hold in this class, and only if a press happened.
+        tracking a hopping body is what a hand does with a mouse.
+
+        With the operator's decision of 2026-10-06, a refused press is answered the way the
+        refusal asks for: each press carries its OWN action id, so the Bridge's own answer
+        for that press (the `ActionResult` the session's outcome registry holds) can never
+        be confused with a walk's or an aim's; a refusal re-arms the press for the next
+        frame that names the target, up to `FIGHT_MAX_PRESS_ATTEMPTS`, and the bound's end
+        concludes the swing by the refusal's own name instead of swinging at nothing. The
+        release goes through the same named exit as every other hold in this class, under
+        the accepted press's id, and only if a press was accepted.
 
         The caller's post-wait still decides the verdict (`_target_unseen`); this method
-        only operates the key honestly in between.
+        only operates the key honestly in between. The verdict it hands back is
+        ("exhausted" | "ended", presses sent, refusals seen).
         """
 
-        pressed = False
+        pressed_id = ""
+        awaiting = ""
+        presses = 0
+        refusals = 0
         walking = False
         window_end = min(deadline, monotonic_ns() + round(swing_seconds * 1_000_000_000))
 
         async def release() -> None:
             if walking:
                 await self._send_walk(action_id, authority, forward=0.0)
-            if pressed:
-                await self._send_swing(authority, action_id, swing=False)
+            if pressed_id:
+                await self._send_swing(authority, pressed_id, swing=False)
+
+        def ended() -> tuple[str, int, int]:
+            """The swing is over; read the last press's fate before saying so.
+
+            A refusal that arrived for the final press must not be left unread
+            just because no further frame came: the bound's end is exactly the
+            fact this step is named for.
+            """
+
+            nonlocal refusals, pressed_id, awaiting
+            if awaiting and self._action_outcomes is not None:
+                outcome = self._action_outcomes.latest(awaiting)
+                if outcome is not None and outcome[0] in (
+                    ACTION_ACCEPTED,
+                    ACTION_STARTED,
+                    ACTION_SUCCEEDED,
+                ):
+                    # An acceptance on the final frame still owns the release.
+                    pressed_id = awaiting
+                    awaiting = ""
+                elif outcome is not None and outcome[0] in (ACTION_FAILED, ACTION_CANCELLED):
+                    refusals += 1
+                    awaiting = ""
+                    if presses >= FIGHT_MAX_PRESS_ATTEMPTS:
+                        return ("exhausted", presses, refusals)
+            return ("ended", presses, refusals)
 
         try:
             current = self._observations.latest
             while current is not None:
                 if monotonic_ns() >= window_end:
-                    return
+                    return ended()
                 if _target_unseen(entity.observation_id)(current):
-                    return
+                    return ended()
                 health = current.self_state.health
                 if health < FIGHT_MIN_HEALTH:
                     # The body dropped under the trading line mid-swing: break it off now
                     # and let the next decision leave. Standing in the exchange below
                     # this line is the death the soaks died, not a fight.
-                    return
+                    return ended()
+                if awaiting and self._action_outcomes is not None:
+                    outcome = self._action_outcomes.latest(awaiting)
+                    if outcome is not None and outcome[0] in (
+                        ACTION_ACCEPTED,
+                        ACTION_STARTED,
+                        ACTION_SUCCEEDED,
+                    ):
+                        pressed_id = awaiting
+                        awaiting = ""
+                    elif outcome is not None and outcome[0] in (ACTION_FAILED, ACTION_CANCELLED):
+                        refusals += 1
+                        awaiting = ""
+                        if presses >= FIGHT_MAX_PRESS_ATTEMPTS:
+                            return ("exhausted", presses, refusals)
                 if not walking:
                     # Walk it down: a slime that hops away is followed while the key is
                     # held, and standing still between hops was where its hits landed.
@@ -2916,9 +3020,20 @@ class WorldSkills:
                             deadline_monotonic_ns=authority.deadline_monotonic_ns,
                         ),
                     )
-                if not pressed and _crosshair_on(current, entity.observation_id):
-                    pressed = True
-                    await self._send_swing(authority, action_id, swing=True)
+                if (
+                    not pressed_id
+                    and not awaiting
+                    and _crosshair_on(current, entity.observation_id)
+                ):
+                    press_id = self._action_id()
+                    presses += 1
+                    await self._send_swing(authority, press_id, swing=True)
+                    if self._action_outcomes is not None:
+                        # Learn this press's fate before pressing again; a session
+                        # with no registry keeps the old optimistic hold.
+                        awaiting = press_id
+                    else:
+                        pressed_id = press_id
                 base_tick = current.game_tick
                 nxt = await self._wait_until(
                     lambda latest, since=base_tick: latest.game_tick > since,
@@ -2926,8 +3041,9 @@ class WorldSkills:
                     action_id=action_id,
                 )
                 if nxt is None:
-                    return
+                    return ended()
                 current = nxt
+            return ended()
         finally:
             await release()
 

@@ -28,6 +28,7 @@ from minekin_core.adapters.bridge.ipc import BridgeIpcHost, IpcProtocolError
 from minekin_core.adapters.bridge.perception import admit_first_snapshot
 from minekin_core.adapters.bridge.session_report import decode_session_identity
 from minekin_core.adapters.bridge.world_observation import decode_world_observation
+from minekin_core.application.action_outcomes import ActionOutcomeRegistry
 from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.domain.budget import BudgetLedger, read_window
 from minekin_core.domain.connection import (
@@ -347,6 +348,7 @@ async def supervise_session(
     until_skills_ready: Callable[[], Awaitable[object]] | None = None,
     on_run_skills: Callable[[], Awaitable[None]] | None = None,
     on_world_observation: Callable[[WorldObservationValue], Awaitable[None]] | None = None,
+    action_outcomes: ActionOutcomeRegistry | None = None,
 ) -> SessionRun:
     """Wait for the handshake, follow the Bridge, and stop when the client does.
 
@@ -472,6 +474,7 @@ async def supervise_session(
                     on_session_identity,
                     world_observations,
                     on_world_observation,
+                    action_outcomes,
                 ),
                 name="minekin-bridge-events",
             )
@@ -659,6 +662,7 @@ async def _read_events(
     on_session_identity: Callable[[int, Mapping[str, object]], Awaitable[None]] | None = None,
     world_observations: WorldObservationStore | None = None,
     on_world_observation: Callable[[WorldObservationValue], Awaitable[None]] | None = None,
+    action_outcomes: ActionOutcomeRegistry | None = None,
 ) -> None:
     """Apply every reported phase until the channel ends or the run is cancelled."""
 
@@ -721,6 +725,12 @@ async def _read_events(
             except ValueError:
                 status = "UNRECOGNIZED"
             progress.action_status_counts[status] = progress.action_status_counts.get(status, 0) + 1
+            if action_outcomes is not None:
+                # The per-action copy, for a skill that must read its own press's
+                # fate: the aggregate counters answer "how many", not "which".
+                action_outcomes.record(
+                    message.action_id, status=status, reason_code=message.reason_code
+                )
             if message.status == control_pb2.ACTION_STATUS_ACCEPTED:
                 progress.actions_applied += 1
             elif message.status == control_pb2.ACTION_STATUS_FAILED:

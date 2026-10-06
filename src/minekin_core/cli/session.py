@@ -112,6 +112,7 @@ from minekin_core.adapters.sqlite.session_log import (
     reconcile_outbox_async,
 )
 from minekin_core.adapters.system.clock import SystemClock
+from minekin_core.application.action_outcomes import ActionOutcomeRegistry
 from minekin_core.application.autonomous_play import (
     MAX_STEP_BUDGET,
     AutonomousAsk,
@@ -1166,6 +1167,7 @@ async def start_and_supervise(
     autonomous: AutonomousAsk | None = None,
     before_client_launch: Callable[[], None] | None = None,
     model_environment: Mapping[str, str] | None = None,
+    action_outcomes: ActionOutcomeRegistry | None = None,
 ) -> tuple[SessionLaunch, SessionRun]:
     """Start a managed session with a live Bridge and stay with it until it ends.
 
@@ -1191,6 +1193,11 @@ async def start_and_supervise(
         target = load_session_server_profile(
             server_profile, minecraft_version=launched_minecraft_version(profile)
         )
+
+    # One per run, shared by the event reader (which fills it from the Bridge's
+    # own answers) and the skills (which read their press's fate from it). A
+    # caller may bring one to observe the same outcomes its skills act on.
+    outcomes = action_outcomes if action_outcomes is not None else ActionOutcomeRegistry()
 
     session = SessionStateMachine()
     prepared = await prepare_session_async(
@@ -1808,6 +1815,7 @@ async def start_and_supervise(
             sender=host,
             observations=observations,
             capabilities=bridge_session.capabilities,
+            action_outcomes=outcomes,
             # The supervisor owns the child process, so it is the only thing that can
             # say whether the client a step is waiting for still exists. A step whose
             # client has exited ends on that fact rather than on its timeout.
@@ -2153,6 +2161,7 @@ async def start_and_supervise(
             None if (skill_plan is None and autonomous is None) else until_skills_ready
         ),
         on_run_skills=(None if (skill_plan is None and autonomous is None) else on_run_skills),
+        action_outcomes=outcomes,
     )
     if cancelled[0]:
         # The same shape `input_refusal` has: only this caller knows Core gave up

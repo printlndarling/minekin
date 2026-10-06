@@ -37,6 +37,11 @@ from minekin_core.adapters.bridge.ipc import (
     USE_INPUT_TYPE,
     monotonic_ns,
 )
+from minekin_core.application.action_outcomes import (
+    ACCEPTED,
+    FAILED,
+    ActionOutcomeRegistry,
+)
 from minekin_core.application.skill_plan import perform_skill
 from minekin_core.application.world_observation import WorldObservationStore
 from minekin_core.application.world_skills import (
@@ -93,11 +98,16 @@ class RecordingSender:
     def __init__(self) -> None:
         self.sent: list[tuple[str, Message]] = []
         self.on_send: Callable[[str], None] | None = None
+        #: The same hook with the frame itself, for scenarios that must answer a
+        #: specific command (a refused press names the action id Core sent).
+        self.on_frame: Callable[[str, Message], None] | None = None
 
     async def send_control(self, message_type: str, message: Message) -> None:
         self.sent.append((message_type, message))
         if self.on_send is not None:
             self.on_send(message_type)
+        if self.on_frame is not None:
+            self.on_frame(message_type, message)
 
     def types(self) -> list[str]:
         return [message_type for message_type, _ in self.sent]
@@ -216,9 +226,19 @@ def slime_aim(tick: int, entity_id: str = "slime-100") -> AimTargetValue:
 def skill_with(
     store: WorldObservationStore,
     capabilities: frozenset[str] = ALL_CAPABILITIES,
+    *,
+    action_outcomes: ActionOutcomeRegistry | None = None,
 ) -> tuple[WorldSkills, RecordingSender]:
     sender = RecordingSender()
-    return WorldSkills(sender=sender, observations=store, capabilities=capabilities), sender
+    return (
+        WorldSkills(
+            sender=sender,
+            observations=store,
+            capabilities=capabilities,
+            action_outcomes=action_outcomes,
+        ),
+        sender,
+    )
 
 
 def store_with(*values: WorldObservationValue) -> WorldObservationStore:
@@ -3232,6 +3252,128 @@ def test_fight_back_aims_at_the_hostile_swings_without_a_block_and_ends_unseen()
         # between hops is where the slime's hits landed (the summon deaths of run-5).
         moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
         assert [message.forward for message in moves] == [1.0, 0.0]  # type: ignore[attr-defined]
+
+    asyncio.run(scenario())
+
+
+def test_a_refused_press_is_pressed_again_inside_the_window() -> None:
+    """The operator's decision (2026-10-06): bounded re-press inside the swing.
+
+    RunV's refusal was the raw material -- the crosshair named the slime on the
+    reading Core saw, the slime hopped a frame before the press landed, and the
+    Bridge refused it MINE_TARGET_NOT_AIMED. The skill now reads the refusal off
+    the action's own outcome and presses again on the next frame that names the
+    target, up to the bound; a press the Bridge accepted holds the key and is
+    released through the named exit.
+    """
+
+    async def scenario() -> None:
+        slime = slime_entity(tick=100)
+        store = store_with(positioned(tick=100, entities=(slime,)))
+        registry = ActionOutcomeRegistry()
+        skills, sender = skill_with(store, action_outcomes=registry)
+        yaw, pitch = angle_to_degrees(
+            dx=slime.relative_x,
+            dy=slime.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=slime.relative_z,
+        )
+        queued = [
+            positioned(tick=110, yaw=yaw, pitch=pitch, entities=(slime,), aim=slime_aim(110)),
+            # Two more frames still naming the target: the re-press happens inside
+            # the same held window, on fresh readings.
+            positioned(tick=120, yaw=yaw, pitch=pitch, entities=(slime,), aim=slime_aim(120)),
+            positioned(tick=130, yaw=yaw, pitch=pitch, entities=(slime,), aim=slime_aim(130)),
+            positioned(tick=140),
+        ]
+        presses = 0
+
+        def answer(message_type: str, message: Message) -> None:
+            nonlocal presses
+            if message_type == MINE_INPUT_TYPE and getattr(message, "mining", False):
+                presses += 1
+                # The Bridge's own answer for this press, under the id it was sent
+                # with: refused while the slime kept hopping, accepted on the third.
+                if presses < 3:
+                    registry.record(
+                        message.action_id,  # type: ignore[attr-defined]
+                        status=FAILED,
+                        reason_code="MINE_TARGET_NOT_AIMED",
+                    )
+                else:
+                    registry.record(message.action_id, status=ACCEPTED)  # type: ignore[attr-defined]
+            # One frame per loop, on the track send: each iteration must see one
+            # fresh reading whether or not it also pressed, or the scenario's
+            # frames outrun the presses it is counting.
+            if message_type == AIM_INPUT_TYPE and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_frame = answer
+        outcome = await skills.fight_back(
+            authority=authority(), swing_seconds=5.0, timeout_ns=10_000_000_000
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.details["presses"] == "3"
+        assert outcome.details["press_refusals"] == "2"
+        mines = [message for kind, message in sender.sent if kind == MINE_INPUT_TYPE]
+        holdings = [message for message in mines if message.mining]  # type: ignore[attr-defined]
+        releases = [message for message in mines if not message.mining]  # type: ignore[attr-defined]
+        # Each press is its own action id, so a walk's or aim's outcome under the
+        # step id can never be mistaken for the press's.
+        press_ids = {str(message.action_id) for message in holdings}  # type: ignore[attr-defined]
+        assert len(press_ids) == 3
+        # Only the accepted press is released, under its own id.
+        assert [message.action_id for message in releases] == [  # type: ignore[attr-defined]
+            holdings[-1].action_id  # type: ignore[attr-defined]
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_a_press_the_bridge_keeps_refusing_ends_by_name_after_the_bound() -> None:
+    """The bound's other end: three refused presses conclude the step with the
+    refusal's own name and the attempt count, rather than swinging at nothing
+    for the rest of the window."""
+
+    async def scenario() -> None:
+        slime = slime_entity(tick=100)
+        store = store_with(positioned(tick=100, entities=(slime,)))
+        registry = ActionOutcomeRegistry()
+        skills, sender = skill_with(store, action_outcomes=registry)
+        yaw, pitch = angle_to_degrees(
+            dx=slime.relative_x,
+            dy=slime.relative_y - EYE_HEIGHT_BLOCKS,
+            dz=slime.relative_z,
+        )
+        queued = [
+            positioned(tick=110, yaw=yaw, pitch=pitch, entities=(slime,), aim=slime_aim(110)),
+            positioned(tick=120, yaw=yaw, pitch=pitch, entities=(slime,), aim=slime_aim(120)),
+            positioned(tick=130, yaw=yaw, pitch=pitch, entities=(slime,), aim=slime_aim(130)),
+        ]
+
+        def answer(message_type: str, message: Message) -> None:
+            if message_type == MINE_INPUT_TYPE and getattr(message, "mining", False):
+                registry.record(
+                    message.action_id,  # type: ignore[attr-defined]
+                    status=FAILED,
+                    reason_code="MINE_TARGET_NOT_AIMED",
+                )
+            # One frame per loop, on the track send (same reason as the re-press
+            # scenario above).
+            if message_type == AIM_INPUT_TYPE and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_frame = answer
+        outcome = await skills.fight_back(
+            authority=authority(), swing_seconds=5.0, timeout_ns=10_000_000_000
+        )
+
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "MINE_TARGET_NOT_AIMED"
+        assert outcome.details["presses"] == "3"
+        mines = [message for kind, message in sender.sent if kind == MINE_INPUT_TYPE]
+        # No release: no press was ever accepted, so the named exit lifts nothing.
+        assert [message.mining for message in mines] == [True, True, True]  # type: ignore[attr-defined]
 
     asyncio.run(scenario())
 

@@ -1492,3 +1492,14 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 - `AutonomousRunHalted`：`confirmed: 1`、`steps: 3`、`stop_reason: "TIMEOUT"`；`InputReleased(had_lease=true, reason=EXPLICIT)` 干净。
 - **同发核验了两个新字段在真实会话里落账**：每步 payload 逐字带 `goal_product_id: "minecraft:wooden_pickaxe"`（目标域召回的写侧），与 `decision_source: "model"`。
 **按实**：这发的 `request_bytes` 读数随 run document 一起死于被杀进程的 stdout，**不可恢复**——"第一枚带字节数的真停滞读数"仍待一次监督进程存活到停车的运行；容器已自行退出（无遗留）。该发不重跑（守护要求）。
+
+## 六之五十六、战斗按门的有界重按：产品决定落地（2026-10-06/07，单元面交付；活体待窗口）
+
+**产品决定（用户，2026-10-06 经 AskUserQuestion）**：按下攻击键的那一帧准星不在目标上（跳动靶跳开）时——**允许在同一有界窗内有界重按**（推荐项被采纳）；只在用尽后按名拒止（原因仍带 `MINE_TARGET_NOT_AIMED` 与尝试次数）。
+
+**落地前发现的真实缺口（读线发现）**：桥对每条输入命令都发 `ActionResult`（状态＋reason_code，走 **事件通道**），而 Core 只把它们计成 `action_status_counts` 聚合——**没有任何地方记住"哪个 action 的哪个状态"**，所以发出挥击的技能永远不知道自己的按下被拒了（runV 的逐字拒止就此消失）。修复分三层：
+1. **新 `application/action_outcomes.py::ActionOutcomeRegistry`**：`action_id → 最新 (status, reason_code)`，有界（64，重触顶到最新侧、溢出裁最旧）；`refused(id, code)` 按**精确名**匹配——同一 action id 承载该步所有输入，而 `MINE_TARGET_NOT_AIMED` 是 mine 处理器自己的词，走路/瞄准的拒止永远不会被当成挥击的。
+2. **会话接线**：`_read_events` 的 ActionResult 分支在计数之外把 (id, status, reason_code) 写进注册表；`start_and_supervise` 每 run 建一个（可由调用方带入以观察）并同时交给 runtime 与 `WorldSkills`。
+3. **挥击重按（`_swing_on_target`）**：**每次按下带自己的 action id**（结果归属不再靠猜）；按下后进入等待——ACCEPTED/STARTED/SUCCEEDED ⇒ 键持有（释放用该按下的 id，仍走具名出口）；FAILED/CANCELLED ⇒ 计一次拒绝，下一帧重新点名目标即重按，**上界 3 次**（`FIGHT_MAX_PRESS_ATTEMPTS`）；上界用尽 ⇒ 整步按名收口 `FAILED / MINE_TARGET_NOT_AIMED`（details 带 `presses`/`press_refusals`）；退出前的最后一帧也会读一次待决结果（最后一下的拒止不会被漏掉，末帧的接受也照样拥有释放）。无注册表的直接单元调用保持旧乐观行为（向后兼容）。
+
+**先红后绿**：注册表 4 测试（最新/有界裁剪/重触/空值不记录）；技能 2 测试（三按两拒后第三下被接受 ⇒ CONFIRMED、`presses:"3"`、`press_refusals:"2"`、三次按下三个不同 id、只释放被接受的那下；三按全拒 ⇒ `FAILED/MINE_TARGET_NOT_AIMED`、`presses:"3"`、无释放）；会话 1 测试（假桥在**事件通道**发一条 FAILED `ActionResult` ⇒ 注册表逐字 `("FAILED","MINE_TARGET_NOT_AIMED")`）。调试按实：初版登记在错通道被丢（ActionResult 是事件不是控制）、`_read_events` 参数漏线致 NameError——都修后全绿。门（uv）：pyright 0/0/0、ruff 0、format 517、全仓 **4182 passed / 2 skipped**。**不声明活体**：召唤史莱姆的真实重按读数（runV 场景复刻）等活体线恢复后取；战斗质量缺口②（换血节奏）随重按落地复评。
