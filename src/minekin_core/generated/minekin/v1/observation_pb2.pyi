@@ -286,14 +286,16 @@ class TradeOffer(_message.Message):
     def __init__(self, first_item_id: _Optional[str] = ..., first_count: _Optional[int] = ..., second_item_id: _Optional[str] = ..., second_count: _Optional[int] = ..., sell_item_id: _Optional[str] = ..., sell_count: _Optional[int] = ..., uses: _Optional[int] = ..., max_uses: _Optional[int] = ..., disabled: bool = ...) -> None: ...
 
 class PlayerChatMessage(_message.Message):
-    __slots__ = ("game_tick", "sender", "text")
+    __slots__ = ("game_tick", "sender", "text", "sender_id")
     GAME_TICK_FIELD_NUMBER: _ClassVar[int]
     SENDER_FIELD_NUMBER: _ClassVar[int]
     TEXT_FIELD_NUMBER: _ClassVar[int]
+    SENDER_ID_FIELD_NUMBER: _ClassVar[int]
     game_tick: int
     sender: str
     text: str
-    def __init__(self, game_tick: _Optional[int] = ..., sender: _Optional[str] = ..., text: _Optional[str] = ...) -> None: ...
+    sender_id: str
+    def __init__(self, game_tick: _Optional[int] = ..., sender: _Optional[str] = ..., text: _Optional[str] = ..., sender_id: _Optional[str] = ...) -> None: ...
 
 class WorldObservation(_message.Message):
     __slots__ = ("generation", "game_tick", "self", "aim", "inventory", "visible_entities", "mining", "gui", "chat", "chat_omitted")

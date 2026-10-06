@@ -15,22 +15,38 @@ final class ChatInboxTest {
 
     @Test
     void aDrainCarriesOldestFirstAndEachLineExactlyOnce() {
-        ChatInbox.record(90L, "Alex", "one");
-        ChatInbox.record(95L, "Steve", "two");
+        ChatInbox.record(90L, "Alex", "", "one");
+        ChatInbox.record(95L, "Steve", "", "two");
 
         ChatInbox.Drain first = ChatInbox.drain();
 
         assertEquals(
-                List.of(new ChatInbox.Line(90L, "Alex", "one"), new ChatInbox.Line(95L, "Steve", "two")),
+                List.of(
+                        new ChatInbox.Line(90L, "Alex", "", "one"),
+                        new ChatInbox.Line(95L, "Steve", "", "two")),
                 first.lines());
         assertEquals(0, first.omitted());
         assertTrue(ChatInbox.drain().lines().isEmpty());
     }
 
     @Test
+    void anAccountKeyRidesTheDrainBesideTheName() {
+        // The stable anchor later memory uses. A blank key is legal — the line
+        // stands on its name — and a null one is normalised to blank rather than
+        // reaching the wire as a null-shaped value.
+        ChatInbox.record(90L, "Alex", "f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2", "keyed");
+        ChatInbox.record(91L, "Steve", null, "unkeyed");
+
+        ChatInbox.Drain drain = ChatInbox.drain();
+
+        assertEquals("f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2", drain.lines().get(0).senderId());
+        assertEquals("", drain.lines().get(1).senderId());
+    }
+
+    @Test
     void oneDrainTakesTheLimitAndTheRestWaitInOrder() {
         for (int index = 0; index < ChatInbox.DRAIN_LIMIT + 2; index++) {
-            ChatInbox.record(index, "Alex", "m" + index);
+            ChatInbox.record(index, "Alex", "", "m" + index);
         }
 
         ChatInbox.Drain first = ChatInbox.drain();
@@ -47,7 +63,7 @@ final class ChatInboxTest {
     @Test
     void aFloodOverflowDropsTheOldestAndReportsItOnce() {
         for (int index = 0; index < ChatInbox.CAPACITY + 3; index++) {
-            ChatInbox.record(index, "Alex", "m" + index);
+            ChatInbox.record(index, "Alex", "", "m" + index);
         }
 
         ChatInbox.Drain first = ChatInbox.drain();
@@ -61,20 +77,20 @@ final class ChatInboxTest {
 
     @Test
     void aBlankSenderOrAnEmptyLineIsNotALine() {
-        ChatInbox.record(1L, "", "no attribution");
-        ChatInbox.record(2L, "   ", "blank name");
-        ChatInbox.record(3L, "Alex", "");
-        ChatInbox.record(4L, "Alex", "fine");
+        ChatInbox.record(1L, "", "key", "no attribution");
+        ChatInbox.record(2L, "   ", "key", "blank name");
+        ChatInbox.record(3L, "Alex", "key", "");
+        ChatInbox.record(4L, "Alex", "key", "fine");
 
         ChatInbox.Drain drain = ChatInbox.drain();
 
-        assertEquals(List.of(new ChatInbox.Line(4L, "Alex", "fine")), drain.lines());
+        assertEquals(List.of(new ChatInbox.Line(4L, "Alex", "key", "fine")), drain.lines());
         assertEquals(0, drain.omitted());
     }
 
     @Test
     void aLongLineIsClippedWithAnEllipsisNotDropped() {
-        ChatInbox.record(1L, "Alex", "x".repeat(ChatInbox.MAX_TEXT_CHARS + 100));
+        ChatInbox.record(1L, "Alex", "", "x".repeat(ChatInbox.MAX_TEXT_CHARS + 100));
 
         ChatInbox.Line line = ChatInbox.drain().lines().get(0);
 
@@ -85,7 +101,7 @@ final class ChatInboxTest {
     @Test
     void aClearDropsTheBacklogAndTheCountTogether() {
         for (int index = 0; index < ChatInbox.CAPACITY + 3; index++) {
-            ChatInbox.record(index, "Alex", "m" + index);
+            ChatInbox.record(index, "Alex", "", "m" + index);
         }
 
         ChatInbox.clear();

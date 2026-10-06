@@ -1156,7 +1156,12 @@ def _chat_records(
     rows: list[tuple[str, dict[str, Any], EventSource, TrustClass]] = [
         (
             PLAYER_CHAT_OBSERVED,
-            {"sender": message.sender, "text": message.text, "game_tick": message.game_tick},
+            {
+                "sender": message.sender,
+                "sender_id": message.sender_id,
+                "text": message.text,
+                "game_tick": message.game_tick,
+            },
             EventSource.BRIDGE,
             TrustClass.PLAYER_CHAT,
         )

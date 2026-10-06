@@ -457,3 +457,47 @@ def test_no_chat_reads_as_no_chat_and_an_omission_is_carried_explicitly() -> Non
     lossy = decode_world_observation(wire_observation(chat_omitted=5))
     assert lossy.chat == ()
     assert lossy.chat_omitted == 5
+
+
+def test_a_senders_account_key_decodes_when_reported_and_is_optional() -> None:
+    """The key is the stable anchor later memory uses; a line without one stands
+    on its name alone rather than being dropped or getting a fabricated key."""
+
+    reading = decode_world_observation(
+        wire_observation(
+            chat=[
+                observation_pb2.PlayerChatMessage(
+                    game_tick=100,
+                    sender="Alex",
+                    text="keyed",
+                    sender_id="f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2",
+                ),
+                observation_pb2.PlayerChatMessage(
+                    game_tick=101, sender="Steve", text="nameless key"
+                ),
+            ]
+        )
+    )
+
+    assert reading.chat[0].sender_id == "f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2"
+    assert reading.chat[1].sender_id == ""
+
+
+def test_an_over_long_account_key_is_dropped_to_empty_while_the_line_stands() -> None:
+    """The key is an enhancement, not the attribution itself: past its bound it
+    is dropped to the empty string, where a missing NAME skips the line — the
+    line keeps standing on what it has."""
+
+    reading = decode_world_observation(
+        wire_observation(
+            chat=[
+                observation_pb2.PlayerChatMessage(
+                    game_tick=100, sender="Alex", text="hello", sender_id="k" * 100
+                )
+            ]
+        )
+    )
+
+    assert len(reading.chat) == 1
+    assert reading.chat[0].sender_id == ""
+    assert reading.chat[0].text == "hello"

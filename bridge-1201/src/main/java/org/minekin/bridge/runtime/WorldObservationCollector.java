@@ -90,6 +90,7 @@ public final class WorldObservationCollector {
                     PlayerChatMessage.newBuilder()
                             .setGameTick(line.gameTick())
                             .setSender(line.sender())
+                            .setSenderId(line.senderId())
                             .setText(line.text()));
         }
         if (chat.omitted() > 0) {

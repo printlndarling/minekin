@@ -32,8 +32,8 @@ public final class ChatInbox {
     /** The longest line carried, the same bound the proto comment states. */
     static final int MAX_TEXT_CHARS = 256;
 
-    /** One heard line: the tick it arrived at, who the game attributes it to, what was said. */
-    public record Line(long gameTick, String sender, String text) {}
+    /** One heard line: the tick it arrived at, who the game attributes it to, and what was said. */
+    public record Line(long gameTick, String sender, String senderId, String text) {}
 
     /** One drain: the lines in arrival order (oldest first) and any overflow since the last drain. */
     public record Drain(List<Line> lines, int omitted) {}
@@ -46,9 +46,11 @@ public final class ChatInbox {
     /**
      * One heard line. A blank sender or a blank line is not a line: an
      * unattributable quote would make every later reader guess whose words it
-     * is, and there is nothing to carry in an empty message.
+     * is, and there is nothing to carry in an empty message. The account key is
+     * an enhancement rather than the attribution itself: a blank one is fine
+     * and rides as blank — the line stands on its name.
      */
-    public static synchronized void record(long gameTick, String sender, String text) {
+    public static synchronized void record(long gameTick, String sender, String senderId, String text) {
         if (sender == null || sender.isBlank() || text == null || text.isBlank()) {
             return;
         }
@@ -56,7 +58,7 @@ public final class ChatInbox {
             PENDING.removeFirst();
             dropped++;
         }
-        PENDING.addLast(new Line(gameTick, sender, clip(text)));
+        PENDING.addLast(new Line(gameTick, sender, senderId == null ? "" : senderId, clip(text)));
     }
 
     /** The lines heard since the previous drain, oldest first, plus the overflow count, which resets once reported. */

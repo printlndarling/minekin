@@ -18,6 +18,7 @@ needs the value and the findings apart.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Final
 
 from minekin_core.domain.perception import (
     MAX_CHAT_SENDER_CHARS,
@@ -37,6 +38,11 @@ from minekin_core.domain.perception import (
     WorldObservationValue,
 )
 from minekin_core.generated.minekin.v1 import control_pb2, observation_pb2
+
+#: The longest account key a chat line may carry, matching the domain value's own
+#: bound; a longer field is dropped to the empty string rather than read (the key
+#: is an enhancement — the line's name stands regardless).
+MAX_CHAT_REF_CHARS: Final = 64
 
 _AIM_KINDS: dict[int, AimKind] = {
     observation_pb2.AIM_TARGET_KIND_UNSPECIFIED: AimKind.UNREAD,
@@ -190,7 +196,18 @@ def decode_chat(
         clipped = (
             text if len(text) <= MAX_CHAT_TEXT_CHARS else text[: MAX_CHAT_TEXT_CHARS - 1] + "…"
         )
-        carried.append(ChatMessageValue(game_tick=message.game_tick, sender=sender, text=clipped))
+        # The account key is an enhancement, not the attribution itself: a key
+        # past its bound is dropped to the empty string and the line keeps
+        # standing on its name, where a missing name would have skipped the
+        # line entirely.
+        sender_id = message.sender_id
+        if len(sender_id) > MAX_CHAT_REF_CHARS:
+            sender_id = ""
+        carried.append(
+            ChatMessageValue(
+                game_tick=message.game_tick, sender=sender, text=clipped, sender_id=sender_id
+            )
+        )
     return tuple(carried)
 
 

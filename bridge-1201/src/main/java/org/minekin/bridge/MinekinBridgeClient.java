@@ -294,7 +294,15 @@ public final class MinekinBridgeClient implements ClientModInitializer {
                     if (client.world != null) {
                         tick = client.world.getTime();
                     }
-                    ChatInbox.record(tick, sender.getName(), message.getString());
+                    // The account key rides beside the name: names change and
+                    // repeat, and this is the key later memory anchors on. A
+                    // profile the game left without an id sends an empty key
+                    // rather than a guessed one.
+                    ChatInbox.record(
+                            tick,
+                            sender.getName(),
+                            sender.getId() == null ? "" : sender.getId().toString(),
+                            message.getString());
                 });
 
         admission = controller;

@@ -98,6 +98,11 @@ REVIEWED_CHAT_FIELDS = {
     "game_tick",
     "sender",
     "text",
+    # The account key the client attributed the line to: the memory contract's
+    # stable anchor (names change and repeat; nothing may merge people by name).
+    # A token the far side reported and nothing more — validated into no
+    # identity here, bounded, and empty when no profile was reported.
+    "sender_id",
 }
 
 

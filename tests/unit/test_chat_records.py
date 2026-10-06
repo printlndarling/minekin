@@ -35,11 +35,37 @@ def test_a_heard_line_becomes_one_row_under_the_players_own_class() -> None:
     assert _chat_records(decode_world_observation(message)) == [
         (
             PLAYER_CHAT_OBSERVED,
-            {"sender": "Alex", "text": "hello", "game_tick": 99},
+            {"sender": "Alex", "sender_id": "", "text": "hello", "game_tick": 99},
             EventSource.BRIDGE,
             TrustClass.PLAYER_CHAT,
         )
     ]
+
+
+def test_the_account_key_rides_the_row_when_the_client_reported_one() -> None:
+    """The stable key is what later memory keys on — names change and repeat —
+    so a line that carried one keeps it in the ledger, verbatim."""
+
+    message = wire()
+    message.chat.extend(
+        [
+            observation_pb2.PlayerChatMessage(
+                game_tick=99,
+                sender="Alex",
+                text="hello",
+                sender_id="f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2",
+            )
+        ]
+    )
+
+    rows = _chat_records(decode_world_observation(message))
+
+    assert rows[0][1] == {
+        "sender": "Alex",
+        "sender_id": "f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2",
+        "text": "hello",
+        "game_tick": 99,
+    }
 
 
 def test_an_omission_becomes_its_own_row_rather_than_a_shorter_conversation() -> None:

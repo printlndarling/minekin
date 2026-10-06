@@ -1557,3 +1557,17 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **先红后绿**：桥 2 格 JUnit；Core：参数 6、compose 2、技能 5、账本行 4、gateway 1；既有钉按设计意图更新（offer 集合 ×6、能力并集 ×2、历史钉 ×1、respawn 负例集回归）。**一处真缺陷由测试逼出并修**：同靶 use 护栏原先"只要有别的名字可转向就撤 use_target"，say 上架后它把言语算成了转向目标、把规则序的复瞄重试搁死——改成"转向目标必须是会行动的名字"。
 
 **按实/不声明**：单元＋构建面。**不声明活体**：真实玩家读到 Kin 的一行、以及 Kin 对别人话的应答——等活体线恢复且场上有第二个真人。门（uv）：pyright 0/0/0、ruff 0、format 523、全仓 **4235 passed / 2 skipped**。
+
+## 六之六十一、聊天带上账号键：改名不串人的锚（2026-10-07，两层一次交付：单元＋构建面）
+
+**缺口（契约明文验收项的无实现）**：记忆契约把"人物以稳定账号/服务器身份键关联，显示名只是属性；相似昵称不得合并"和验收 2"玩家 A 相隔多次会话回来…A/B 同名或改显示名时不串人"写成硬要求，而此前聊天行**只带展示名**——按键并号无从谈起。本轮把客户端亲口给出的稳定键带上路。
+
+**交付（两层，单投完成）**：
+1. **线**：`PlayerChatMessage.sender_id`（客户端归因给该行的账号侧键，原样有界携带，**不校验成身份**；空＝客户端没报告 profile，该行只凭名字站立、归因给"没有稳定键的人"）。
+2. **桥**：`ChatInbox.record` 增键参数（null 归一为空）；`ClientReceiveMessageEvents.CHAT` 回调填 `sender.getId()`；报文 `setSenderId`。JUnit 更新＋新格"键随名字同行"。
+3. **Core**：`ChatMessageValue.sender_id`（默认空）；decode 复检界——**键是增益不是归因本身**：超界键落空、行不丢（与缺名丢行相反）；`PlayerChatObserved` payload 增 `sender_id`；观察边界表随字段续录（三处评审文字写清"token 不是身份、不许按键并号以外的任何推断"）。
+4. **pin 链**：Loom 构建 22s → jar `5bb026dc…`(1,491,407) → `abd54898…`(1,492,215)；`recipe.py`、候选 recipe（含 `source_digest` 重算）、manifest 行、pb2（observation.proto）逐项续期。
+
+**先红后绿**：decode 2 新（键解码＋超界落空而行站立）；记录行 1 新（键随行走）；边界表 +1 字段。门（uv）：`verify_fixture_digests` OK、pyright 0/0/0、ruff 0、format 523、全仓 **4238 passed / 2 skipped**。
+
+**按实/不声明**：单元＋构建面。**不声明活体**：真实改名/同名场景的活体读数等活体线恢复且场上有真人。**另按实记录**：容器重验**再次被内存守护打断**（后台 tar 卷填充遇上系统临界低内存、被 reap；按守护规则**不自行重启**，待操作者放行）——新 jar 的跨平台可复现性仍为具名待办。CI：say 卡 `cd638ae`/`b245281` `success`（`5451d4f` 未单独取到结论，其整树内容经 `b245281` 验证）。

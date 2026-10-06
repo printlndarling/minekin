@@ -425,15 +425,21 @@ class GuiScreenValue:
 class ChatMessageValue:
     """One player chat line as the client heard it — another account's words.
 
-    Kept with the sender's display name so every reader can attribute it, and
-    with the tick it arrived so a ledger row can be ordered against the rest of
-    the episode. Testimony from a real account: never a system fact, never a
-    permission, and never merged across accounts by name.
+    Kept with the sender's display name so every reader can attribute it, with
+    the tick it arrived so a ledger row can be ordered against the rest of the
+    episode, and with the sender's account key when the client reported one:
+    display names change and repeat, so the key is what later memory keys on
+    (the contract's "A/B 同名或改显示名时不串人"). Testimony from a real
+    account: never a system fact, never a permission.
     """
 
     game_tick: int
     sender: str
     text: str
+    #: The account key the client attributed the line to (a profile id as the far
+    #: side reported it), or `""` when no profile was reported — the line then
+    #: stands on its name alone, attributed to nobody stable.
+    sender_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

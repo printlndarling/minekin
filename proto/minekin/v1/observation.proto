@@ -303,6 +303,14 @@ message PlayerChatMessage {
   uint64 game_tick = 1;
   string sender = 2;
   string text = 3;
+  // The sender's account key, as the client received it — the profile UUID the
+  // game attributes the line to. This is the stable key the memory contract
+  // asks for: display names change and repeat, and nothing downstream may merge
+  // two people by name (the contract's "A/B 同名或改显示名时不串人"). It is a
+  // token the far side reported, bounded and carried as-is; nothing here
+  // validates it into an identity, and an empty value (no profile reported)
+  // means the line stands on its name alone — attributed to nobody stable.
+  string sender_id = 4;
 }
 
 // The recurring player-equivalent view: where the Kin is, what its crosshair is on,
