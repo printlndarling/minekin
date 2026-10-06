@@ -33,7 +33,9 @@ from bridge_peer import (  # type: ignore[import-not-found]
     read_frame,
     write_frame,
 )
+from minekin_core.adapters.bridge import bootstrap as bootstrap_module
 from minekin_core.adapters.bridge.ipc import (
+    AIM_INPUT_TYPE,
     BRIDGE_HELLO_TYPE,
     CANCEL_CONNECTION_TYPE,
     CONNECT_WORLD_TYPE,
@@ -48,6 +50,7 @@ from minekin_core.adapters.bridge.ipc import (
     monotonic_ns,
 )
 from minekin_core.adapters.launcher.offline_session import OFFLINE_SESSION_CANDIDATES
+from minekin_core.adapters.launcher.recipe import MINECRAFT_1201_VERSION, session_capabilities
 from minekin_core.adapters.launcher.saves import settings_digest, world_snapshot_digest
 from minekin_core.adapters.launcher.server_profile import load_server_profile
 from minekin_core.adapters.launcher.stop_request import (
@@ -77,6 +80,8 @@ from minekin_core.adapters.sqlite.session_log import (
     SESSION_STATE_TRANSITIONED,
 )
 from minekin_core.application.ports.clock import FakeClock
+from minekin_core.application.skill_plan import SkillPlan
+from minekin_core.application.world_skills import SkillCall
 from minekin_core.cli import session as session_module
 from minekin_core.cli.session import (
     IPC_DIRECTORY,
@@ -1950,6 +1955,115 @@ async def _run_holding_the_input(root: Path, *, hold_forward: float | None = 30.
     )
 
 
+#: The parked plan's step window. Long on purpose: the fake Bridge never confirms
+#: the look, so the step owns the whole span, and an ask answered inside it was
+#: provably not queued behind the plan.
+PARKED_STEP_SECONDS = 30.0
+
+
+async def _run_with_a_parked_turn(root: Path) -> _Held:
+    """Walk a session to a running plan whose single step is waiting on a reading.
+
+    The same shape `_run_holding_the_input` has, with the plan in place of the
+    hold: everything up to playable and the lease is the product's own path, and
+    what is left running is a `turn_to` whose confirmation the fake Bridge never
+    sends, so the step sits in its window until something interrupts it.
+    """
+
+    process = LiveProcess()
+    path = descriptor_path(root)
+    supervisor = live_supervisor(process, path, [])
+    database = root / "kin" / "kin-01" / "kin.sqlite3"
+    running = asyncio.create_task(
+        start_and_supervise(
+            root=root,
+            profile=PROFILE,
+            java_executable=JAVA,
+            session_id=SESSION_ID,
+            generation=GENERATION,
+            supervisor_factory=lambda _logs: supervisor,
+            handshake_timeout=5.0,
+            exit_poll_s=0.01,
+            server_profile=SERVER_PROFILE,
+            skill_plan=SkillPlan(
+                (SkillCall(name="turn_to", yaw_degrees=45.0, pitch_degrees=0.0),),
+                source="parked-turn",
+            ),
+            skill_step_seconds=PARKED_STEP_SECONDS,
+        )
+    )
+    await _wait_until(path.is_file)
+    descriptor = session_pb2.BridgeBootstrapDescriptor.FromString(path.read_bytes())
+    bridge = BridgeSession(
+        kin_id=descriptor.kin_id,
+        session_id=descriptor.session_id,
+        generation=descriptor.generation,
+        client_instance_id=descriptor.client_instance_id,
+        bundle_digest=descriptor.bundle_digest,
+        bridge_digest=descriptor.bridge_digest,
+        minecraft_version="1.21.4",
+        fabric_loader_version="0.16.9",
+        launch_nonce=descriptor.launch_nonce,
+        session_key=descriptor.session_key,
+        # The plan's look needs an authorisation the fabricated profile's version
+        # never carries: a session's offer is version-pinned, so the test stands in
+        # for the 1.20.1 set both sides would negotiate (the monkeypatch in the
+        # test pins the Core half of the same claim).
+        capabilities=session_capabilities(MINECRAFT_1201_VERSION),
+    )
+    control_reader, control_writer = await connect(descriptor, envelope_pb2.CHANNEL_CONTROL)
+    _event_reader, event_writer = await connect(descriptor, envelope_pb2.CHANNEL_EVENT)
+    await write_frame(
+        control_writer,
+        envelope(
+            bridge,
+            BRIDGE_HELLO_TYPE,
+            envelope_pb2.CHANNEL_CONTROL,
+            1,
+            hello(bridge).SerializeToString(deterministic=True),
+        ),
+    )
+    await asyncio.wait_for(read_frame(control_reader), 5)
+    connect_frame = await _wait_for_control_message(control_reader, CONNECT_WORLD_TYPE)
+    command = control_pb2.ConnectWorld.FromString(connect_frame.payload)
+    for sequence, phase in enumerate(CONNECTED_PHASES, start=1):
+        await write_frame(
+            event_writer,
+            envelope(
+                bridge,
+                CONNECTION_LIFECYCLE_TYPE,
+                envelope_pb2.CHANNEL_EVENT,
+                sequence,
+                _lifecycle(bridge, command, phase).SerializeToString(deterministic=True),
+            ),
+        )
+    await write_frame(
+        event_writer,
+        envelope(
+            bridge,
+            INITIAL_OBSERVATION_TYPE,
+            envelope_pb2.CHANNEL_EVENT,
+            len(CONNECTED_PHASES) + 1,
+            first_snapshot(
+                generation=bridge.generation, material=_material(root)
+            ).SerializeToString(deterministic=True),
+        ),
+    )
+    await _wait_until(lambda: any(row[0] == PLAYABLE_ESTABLISHED for row in _ledger_rows(database)))
+    # The aim went out: the plan is past its boundary checks and inside the step,
+    # waiting for a reading that says its angle arrived — which the fake Bridge
+    # never sends.
+    await _wait_for_control_message(control_reader, AIM_INPUT_TYPE)
+    return _Held(
+        process=process,
+        running=running,
+        control_reader=control_reader,
+        control_writer=control_writer,
+        event_writer=event_writer,
+        database=database,
+    )
+
+
 #: The one ask these tests make. A fixed id and address, so the receipt a test reads
 #: back is the answer to this ask rather than to whatever a previous run left.
 ASK_ID = "ask-1"
@@ -2014,6 +2128,72 @@ def test_a_stop_request_releases_the_input_over_the_still_live_channel(
     assert reason == "EXPLICIT"
     assert run.outcome is SessionOutcome.CLIENT_EXITED
     assert run.release_failed is False
+    # Exactly one release in the ledger: the wind-down did not send it again.
+    assert [
+        payload["reason"] for kind, payload in _ledger_facts(database) if kind == INPUT_RELEASED
+    ] == ["EXPLICIT"]
+
+
+def test_a_stop_request_interrupts_a_running_plan_and_releases_over_the_live_channel(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The ask is answered while the plan is still running, not after it ends.
+
+    This is the ordering the whole branch exists for: the release has to reach the
+    Bridge before the stopper terminates the client, and a run that is mid-plan has
+    its step's whole window left. An answer that arrived only once the plan
+    finished would be the wind-down's release over a socket whose receiver the
+    stopper already killed — the shape two sealed runs recorded as
+    `input_release_failed`. So the plan is *interrupted*: its step ends on the ask
+    with `INTERRUPTED`, not on its own 30-second window, and exactly one release
+    goes out.
+    """
+
+    root = ready_data_root(tmp_path, monkeypatch)
+    runs = run_root(root)
+
+    # The fabricated profile names 1.21.4, whose reviewed Bridge is offered the
+    # baseline set only; a skill plan's look needs the set a 1.20.1 session
+    # negotiates, so the Core half of the hello offer is pinned to that version's
+    # table — the same claim `_run_with_a_parked_turn` pins on the Bridge half.
+    def capabilities_for(_version: str) -> frozenset[str]:
+        return session_capabilities(MINECRAFT_1201_VERSION)
+
+    monkeypatch.setattr(bootstrap_module, "session_capabilities", capabilities_for)
+
+    async def scenario() -> tuple[SessionRun, StopReceipt | None, list[str], Path]:
+        held = await _run_with_a_parked_turn(root)
+        request = _ask(runs)
+        # The step owns a 30s window; the receipt arriving well inside it is what
+        # says the ask was not queued behind the plan.
+        await _wait_until(
+            lambda: read_receipt(runs, request=request) is not None,
+            what="the receipt for the ask",
+            timeout=10.0,
+        )
+        receipt = read_receipt(runs, request=request)
+        await _wait_for_control_message(held.control_reader, RELEASE_ALL_INPUTS_TYPE)
+        # Nothing else may go out behind the release: a second one would be a
+        # second answer to one ask, and a further look would be the interrupted
+        # plan still driving a client the run is being taken away from.
+        seen = await _control_types_after(held.control_reader)
+        held.process.exited = True
+        _launch, run = await asyncio.wait_for(held.running, 10)
+        await close_writers(held.control_writer, held.event_writer)
+        return run, receipt, seen, held.database
+
+    run, receipt, seen, database = asyncio.run(scenario())
+
+    assert receipt is not None
+    assert receipt.release is StopRelease.SENT
+    assert seen == []
+    assert run.outcome is SessionOutcome.CLIENT_EXITED
+    # The plan's step ended on the ask, with the ask's own name — not on its window.
+    assert run.skill_stop == "turn_to"
+    steps = run.skills
+    assert [step["skill"] for step in steps] == ["turn_to"]
+    assert steps[0]["result"] == "INTERRUPTED"
+    assert steps[0]["reason"] == "SESSION_STOP_REQUESTED"
     # Exactly one release in the ledger: the wind-down did not send it again.
     assert [
         payload["reason"] for kind, payload in _ledger_facts(database) if kind == INPUT_RELEASED

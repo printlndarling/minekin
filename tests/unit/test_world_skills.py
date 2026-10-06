@@ -45,6 +45,7 @@ from minekin_core.application.world_skills import (
     EYE_HEIGHT_BLOCKS,
     ActionAuthority,
     ClientProcessExited,
+    SessionStopRequested,
     SkillCall,
     WorldSkills,
 )
@@ -1750,6 +1751,67 @@ def test_a_client_that_exits_ends_a_chase_that_keeps_getting_readings() -> None:
 
         assert raised is not None
         assert raised.exit_code == 143
+
+    asyncio.run(scenario())
+
+
+def test_a_stop_request_ends_a_step_that_keeps_getting_readings() -> None:
+    """The operator's ask interrupts like the client's exit does, and for the same
+    reason: after it, nobody will send the reading that would answer the wait.
+
+    A stop that interrupted only *between* steps would let a chase — or a fight, or
+    a walk — keep driving the client for the rest of its window after the operator
+    asked for the run to end, which is exactly the span in which the release the
+    stopper is waiting for must go out. So the ask is checked where the readings
+    are, not only at the step boundary.
+    """
+
+    async def scenario() -> None:
+        store = store_with(
+            reading(tick=100, inventory_value=inventory(100), entities=(oak_log_drop(tick=100),))
+        )
+        asked = [False]
+        skills = WorldSkills(
+            sender=RecordingSender(),
+            observations=store,
+            capabilities=ALL_CAPABILITIES,
+            stop_requested=lambda: asked[0],
+        )
+
+        async def feed() -> None:
+            for tick in range(101, 140):
+                await asyncio.sleep(0.01)
+                store.admit(
+                    reading(
+                        tick=tick,
+                        inventory_value=inventory(tick),
+                        entities=(oak_log_drop(tick=tick),),
+                    ),
+                    (),
+                )
+
+        async def ask() -> None:
+            await asyncio.sleep(0.06)
+            asked[0] = True
+
+        feeding = asyncio.create_task(feed())
+        asking = asyncio.create_task(ask())
+
+        raised: SessionStopRequested | None = None
+        try:
+            await skills.collect_dropped(
+                item_id=LOG, authority=authority(), walk_seconds=0.01, timeout_ns=60_000_000_000
+            )
+        except SessionStopRequested as stop:
+            raised = stop
+        await feeding
+        await asking
+
+        assert raised is not None
+        # The step's own id travels with the stop, because the command carrying it
+        # may already have reached the client and the release that follows is the
+        # receipt a stopper reads.
+        assert raised.action_id != ""
 
     asyncio.run(scenario())
 

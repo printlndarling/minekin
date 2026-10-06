@@ -1765,6 +1765,13 @@ async def start_and_supervise(
             # say whether the client a step is waiting for still exists. A step whose
             # client has exited ends on that fact rather than on its timeout.
             client_exit=prepared.supervisor.poll,
+            # The stop watcher is the only thing that hears the operator's ask, so
+            # it is the only honest source for this: a step ends on the ask the same
+            # way it ends on a gone client, inside its window rather than after it —
+            # which is the span in which the release the stopper waits for must go
+            # out. Read through a closure because the watcher's cell is written by
+            # the runtime while this plan runs.
+            stop_requested=lambda: asked_to_stop[0] is not None,
         )
         authority = ActionAuthority(
             lease_id=lease.lease_id,

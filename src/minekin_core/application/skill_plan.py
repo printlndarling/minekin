@@ -35,6 +35,7 @@ from minekin_core.application.world_skills import (
     ActionAuthority,
     ClientProcessExited,
     PlayerDied,
+    SessionStopRequested,
     SkillCall,
     WorldSkills,
 )
@@ -484,7 +485,7 @@ async def perform_skill(
     try:
         async with skills.body_attempt():
             outcome = await _dispatch(skills, call, authority=authority, timeout_ns=timeout_ns)
-            skills.check_body_interruption(outcome.action_id)
+            skills.check_interruption(outcome.action_id)
             return outcome
     except ClientProcessExited as exit_error:
         # The wait gave up because the process that would have answered it is gone.
@@ -498,6 +499,16 @@ async def perform_skill(
             action_id=interrupted.action_id,
             post_tick=interrupted.game_tick,
             details={"release_send_failed": "true"} if interrupted.release_failed else {},
+        )
+    except SessionStopRequested as stopped:
+        # INTERRUPTED rather than UNKNOWN: the ask is an answer and it has a name.
+        # The id travels too — the command it names may already have reached the
+        # client, and the release that follows is what the stopper reads as the
+        # receipt for this run.
+        return SkillOutcome(
+            result=ActionResultClass.INTERRUPTED,
+            reason="SESSION_STOP_REQUESTED",
+            action_id=stopped.action_id,
         )
 
 

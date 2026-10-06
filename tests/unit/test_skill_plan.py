@@ -39,6 +39,7 @@ from minekin_core.application.world_skills import (
     DEFAULT_STEP_TIMEOUT_NS,
     ActionAuthority,
     ClientProcessExited,
+    SessionStopRequested,
     WorldSkills,
 )
 from minekin_core.domain.control_vocabulary import (
@@ -787,6 +788,79 @@ def test_a_plan_stops_at_the_step_that_lost_its_client() -> None:
         assert [step.name for step in steps] == ["craft", "close_screen"]
         assert sequence.stopped_at == "close_screen"
         assert steps[1].outcome.reason == CLIENT_EXITED
+
+    asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------- the operator's own exit
+
+
+STOP_ACTION_ID = "b" * 32
+
+
+class _StopRequestedTape(_TapeSkills):
+    """A tape whose step is interrupted because the operator asked the run to stop."""
+
+    async def close_screen(
+        self, *, authority: ActionAuthority, timeout_ns: int = DEFAULT_STEP_TIMEOUT_NS
+    ) -> SkillOutcome:
+        del authority, timeout_ns
+        self.ran.append("close_screen")
+        raise SessionStopRequested(action_id=STOP_ACTION_ID)
+
+
+def test_a_step_ends_interrupted_when_the_operator_asked_to_stop() -> None:
+    """INTERRUPTED, not UNKNOWN: the ask is an answer, and it has a name.
+
+    A step that waited out its window after the operator asked for the run to end
+    would spend that window driving a client the run is being taken away from —
+    and it would leave behind a timeout reason for something that was not one.
+    """
+
+    async def scenario() -> None:
+        skills = _StopRequestedTape(
+            {"close_screen": _outcome(ActionResultClass.CONFIRMED)}, _RecordingSender()
+        )
+
+        outcome = await perform_skill(
+            skills, _plan("close_screen").calls[0], authority=AUTHORITY, timeout_ns=1
+        )
+
+        assert outcome.result is ActionResultClass.INTERRUPTED
+        assert outcome.reason == "SESSION_STOP_REQUESTED"
+        # The ask that was in flight travels with the stop, so the release that
+        # follows and the step's own row name the same command.
+        assert outcome.action_id == STOP_ACTION_ID
+        assert skills.ran == ["close_screen"]
+
+    asyncio.run(scenario())
+
+
+def test_a_plan_stops_at_the_step_the_operator_stopped() -> None:
+    """No later step runs once the run is being taken away under it."""
+
+    async def scenario() -> None:
+        skills = _StopRequestedTape(
+            {"craft": _outcome(ActionResultClass.CONFIRMED)}, _RecordingSender()
+        )
+        steps: list[SkillStep] = []
+
+        async def record(step: SkillStep) -> None:
+            steps.append(step)
+
+        sequence = await run_skill_plan(
+            skills,
+            _plan("close_screen", "craft"),
+            authority=AUTHORITY,
+            timeout_ns=DEFAULT_STEP_TIMEOUT_NS,
+            on_step=record,
+        )
+
+        assert [step.name for step in steps] == ["close_screen"]
+        assert sequence.stopped_at == "close_screen"
+        document = sequence.as_document()
+        steps_document = cast("list[Mapping[str, object]]", document["steps"])
+        assert steps_document[0]["reason"] == "SESSION_STOP_REQUESTED"
 
     asyncio.run(scenario())
 

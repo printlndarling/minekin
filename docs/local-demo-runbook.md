@@ -1322,3 +1322,24 @@ MINEKIN_DEMO_VOLUME=minekin-local-demo2 MINEKIN_DEMO_KIN=kin-3x3-fresh-20261002 
 2. **B（`ef7a63ea28884d24b89243853279ccb4`，同根干净重启）**：run document 逐字 `"recovery": {"invalidated": ["0c8a144eb684468fa389b6801ff32e0b"], "schema_version": 1, "status": "reconciled", "waiting": []}`——**非空 `invalidated`，且 id 与被杀发留下的那行完全同一**；该行随后 `completed`。B 自身正常跑完：走动、`release released:[178]/unconfirmed:[]`、`STOPPED_ON_REQUEST`。被杀客户端的 process 标记按 `/proc` 判为已死，新 run 未被 `OLD_CLIENT_UNPROVEN` 拒。
 
 **按实/不声明**：四路区分（正常 stop／重启核对／异常断连／非空失效恢复）至此四格皆有本构建活体读数，其中"异常断连"现有两枚形状（IPC_LOST 松键、仍存活客户端 watchdog 松键）；不据此改判 PROCESS-RECOVERY-001（残留进程自动处置仍是 BLOCKED_DECISION，只检测/报告）。普通运行记录、非 sealed；`INPUT_LEASE` 的 RELEASE_ALL/CONNECT_WORLD 等其它效果行仍无活体开单者，保留具名待办。保留具名缺口：运行中的计划与 stop watcher 未赛跑（追加五登记），列为下一卡。
+
+## 六之四十二、运行中的计划与 stop watcher 赛跑：中途停止=中断+单次释放（2026-10-06，run `e0c74612…`，普通运行记录、非 sealed）
+
+`D-SESSION-STOP-DURING-PLAN-001` 收口。**先修的真实缺口**：`supervise_session` 的分支处置循环**内联 await** 每个 handler——而 skill plan 的 handler 是整个计划；计划一跑，循环就停在 `await answer()` 上，stop watcher 提交了完成也没人看，`on_stop_request` 要等计划自己结束才轮到。操作者停运行中的计划因此走硬路径：计划继续按自己的窗口驱动客户端，释放要么晚到、要么落在停止器已经杀掉接收者的通道上（两次 sealed 运行 `input_release_failed` 的形状）。
+
+**修复（两半，本发提交）**：
+1. `session_runtime.py`：**每个被触发的分支由自己的 task 应答**（answer task），循环在应答运行期间继续监督；读者/客户端结束的 `break` **延后**（`ended` 集合 + `if ended and not answers`）——计划保留内联 await 时代那份有界的收尾宽限，而 stop 的应答不再排在它后面。非传输异常仍按原语义从循环抛出。
+2. 计划可被停：`WorldSkills.check_body_interruption` 更名为 `check_interruption`（语义变了，名字跟上），除死亡外还检查 `stop_requested`，抛 `SessionStopRequested(action_id)`——**在所有读数经过的地方被检查**（步边界、`observed` 谓词、两份等待循环），所以追踪/格斗/行走会在窗口内被中断，而不是窗口走完；`skill_plan.perform_skill` 把它映射成 `INTERRUPTED / SESSION_STOP_REQUESTED`（action_id 随行），序列在该步停下。`session.py` 的 `WorldSkills` 构造处接 `stop_requested=lambda: asked_to_stop[0] is not None`（watcher 的 cell 是唯一诚实的来源）。
+
+**先红后绿**（3 新 + 1 延长）：受控监督级"30s 窗口的计划中途被停 → 回执先到、计划以 `INTERRUPTED/SESSION_STOP_REQUESTED` 收尾、恰一次 RELEASE_ALL"（RED 时回执要等计划的 30s 窗口走完）；世界技能级"chase 被停中断"；skill_plan 级"操作者停止的步骤以 INTERRUPTED 收尾、序列停在该步、action_id 随行"；release 发不出去时租约效果有意留开（上一发那张卡）。门（uv 口径）：pyright 0/0/0、ruff 0、format 512、pytest 4144 passed / 2 skipped。
+
+**活体（`--skills` 长计划 + 途中另一个进程的 `session stop`）**：卷 `minekin-local-demo2`、kin `kin-3x3-fresh-20261002`、候选 bundle profile、每步窗口 45s（`MINEKIN_DEMO_STEP_SECONDS=45`）。宿主在 `the session is playable` 后约 4 秒从**另一个进程**发停（`docker exec … env MINEKIN_HOME=/data MINEKIN_KIN_ID=… python -m minekin_core session stop`，stop 回执逐字 `release: {"asked": [180], "nothing_held": [], "released": [180], "unconfirmed": []}`、`terminated: [180]`）。run `e0c7461200274eb5bcaf3a6ff8d2cc41`（server run 目录 run-164，session `cab6a307…`）的 run document 逐字：
+
+```
+outcome STOPPED_ON_REQUEST | skill_stop collect_dropped | input_release_failed False
+step: turn_to CONFIRMED
+step: break_seen_block CONFIRMED
+step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
+```
+
+客户端同发的关键三行：`02:23:57 bridge pressed move.forward`（第三步的追赶起步）→ `02:24:00 bridge released move.forward` ＋ **`bridge released 1 input(s) after CORE_REQUEST (EXPLICIT)`**——不满 45s 窗口的 3 秒处、客户端还活着时，松键已由核发请求、被 Bridge 确认；全程无 `failing closed`、无 `cancelling`。域内 harness 的收尾 `session stop` 随后如实报 `released: []`（已无可释放——没有第二次释放）。**按实**：中断点是"读数经过的地方+等待循环的轮询节奏"，已发出的单条命令至多再按一拍走；步与步之间的停由下一步的边界检查兑现（同样记为 INTERRUPTED）。普通运行记录、非 sealed。

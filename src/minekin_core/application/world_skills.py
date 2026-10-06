@@ -661,6 +661,23 @@ class PlayerDied(RuntimeError):
         self.release_failed = False
 
 
+class SessionStopRequested(RuntimeError):
+    """The operator asked this run to stop while an action was in flight.
+
+    The step ends now, `INTERRUPTED` with this name, rather than waiting out its
+    window: the run is being taken away, and the seconds left in the window are
+    exactly the span in which the release the stopper is waiting for has to go
+    out. A step that kept driving the client until its own timeout would also
+    leave behind a timeout reason for an end that was not one. Derives from
+    `RuntimeError` for the client-exit reason: a wait that reaches a caller which
+    does not ask about stops must end the run rather than hang.
+    """
+
+    def __init__(self, *, action_id: str) -> None:
+        super().__init__("SESSION_STOP_REQUESTED")
+        self.action_id = action_id
+
+
 def _client_still_running() -> int | None:
     return None
 
@@ -676,12 +693,17 @@ class WorldSkills:
         capabilities: frozenset[str],
         action_id: Callable[[], str] = lambda: OpaqueId.new().value,
         client_exit: Callable[[], int | None] = _client_still_running,
+        stop_requested: Callable[[], bool] | None = None,
     ) -> None:
         self._sender = sender
         self._observations = observations
         self._capabilities = capabilities
         self._action_id = action_id
         self._client_exit = client_exit
+        #: The operator's ask, as the session owns it. `None` means this run has
+        #: nobody who could ask — the same shape `client_exit`'s default has for a
+        #: caller that manages no process.
+        self._stop_requested = stop_requested
         self._body_start: ContextVar[int | None] = ContextVar("body_start", default=None)
 
     @asynccontextmanager
@@ -693,7 +715,19 @@ class WorldSkills:
         finally:
             self._body_start.reset(token)
 
-    def check_body_interruption(self, action_id: str) -> None:
+    def check_interruption(self, action_id: str) -> None:
+        """Raise when the operator's ask or the body has ended this action.
+
+        Two facts, one check, because they land at the same call sites and mean the
+        same thing to a step: the reading that would answer it will not come the way
+        it was going to. The ask is checked first — a run being taken away ends with
+        the stop named, whatever the body was doing at the time — and it is checked
+        wherever readings are, not only at the step boundary, so a chase or a fight
+        is interrupted inside its window rather than after it.
+        """
+
+        if self._stop_requested is not None and self._stop_requested():
+            raise SessionStopRequested(action_id=action_id)
         started = self._body_start.get()
         if started is not None and self._observations.death_count != started:
             tick = self._observations.last_death_tick
@@ -1822,7 +1856,7 @@ class WorldSkills:
             action_id=action_id,
             allow_dead=True,
         )
-        self.check_body_interruption(action_id)
+        self.check_interruption(action_id)
         if post is None:
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
@@ -1931,7 +1965,7 @@ class WorldSkills:
             ),
             action_id=action_id,
         )
-        self.check_body_interruption(action_id)
+        self.check_interruption(action_id)
         if post is None:
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
@@ -2077,7 +2111,7 @@ class WorldSkills:
             ),
             action_id=action_id,
         )
-        self.check_body_interruption(action_id)
+        self.check_interruption(action_id)
         if post is None:
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
@@ -2699,7 +2733,7 @@ class WorldSkills:
             raise ClientProcessExited(gone, action_id=action_id)
 
         def observed(candidate: WorldObservationValue) -> bool:
-            self.check_body_interruption(action_id)
+            self.check_interruption(action_id)
             return not candidate.self_state.alive or predicate(candidate)
 
         post = await self._outlive_client(
@@ -2710,7 +2744,7 @@ class WorldSkills:
         return post
 
     def _check_alive(self, action_id: str) -> None:
-        self.check_body_interruption(action_id)
+        self.check_interruption(action_id)
         latest = self._observations.latest
         if latest is not None and not latest.self_state.alive:
             raise PlayerDied(action_id=action_id, game_tick=latest.game_tick)
@@ -2758,7 +2792,7 @@ class WorldSkills:
                 if finished:
                     return pending.result()
                 if allow_dead:
-                    self.check_body_interruption(action_id)
+                    self.check_interruption(action_id)
                 else:
                     self._check_alive(action_id)
                 gone = self._client_exit()

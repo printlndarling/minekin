@@ -400,7 +400,11 @@ async def supervise_session(
     process asking for this run to stop. Nothing about it ends the run either —
     the client is still the thing whose exit ends a run — but it is the last
     moment at which a release can still reach a live Bridge, which is why the
-    answer to it is awaited here rather than left to the wind-down.
+    answer to it runs beside the other answers rather than being left to the
+    wind-down. Every fired branch is answered by a task of its own and the loop
+    keeps supervising while answers run: one caller's answer may be a whole skill
+    plan, and a stop request must not sit behind it — the ask has to be answered
+    while the plan is still holding keys, not after the plan ends.
 
     `on_wind_down` is the last chance to speak to the Bridge: it runs after the
     generation is closed and before the transport is, which is the only order in
@@ -500,21 +504,49 @@ async def supervise_session(
                     asyncio.create_task(_awaited(until_skills_ready), name="minekin-skills-ready")
                 ] = on_run_skills
             watched: set[asyncio.Task[None]] = {reader, client, *branches}
+            # Answers in flight, one task per fired branch. A branch is answered by
+            # its own task rather than by this loop because one of these answers is
+            # a whole skill plan: awaited here, it would starve every other branch
+            # — a stop request would sit behind the plan, which is the one ordering
+            # the stop branch exists to prevent. The loop keeps supervising while
+            # an answer runs, so an ask that arrives mid-plan is answered mid-plan.
+            answers: dict[asyncio.Task[None], Callable[[], Awaitable[None]]] = {}
+            # The tasks that ended the session, remembered across iterations: with
+            # an answer still running, the reader's end defers the break until the
+            # answer has concluded — the plan gets the same bounded grace to record
+            # its steps that awaiting it inline used to give it — and by the time
+            # the break happens its `finished` batch may no longer name the reader.
+            ended: set[asyncio.Task[None]] = set()
             try:
                 while True:
                     finished, _ = await asyncio.wait(watched, return_when=asyncio.FIRST_COMPLETED)
-                    if reader in finished or client in finished:
-                        break
-                    # The caller's moment arrived and nothing else ended: do the one
-                    # thing it asked for, then keep supervising. The task is dropped
-                    # from the set because it is done, and a done task left in the
-                    # set would make the very next wait return immediately.
+                    ended |= {task for task in finished if task is reader or task is client}
+                    # Dropped from the set because done: a done task left in it
+                    # would make the very next wait return immediately.
+                    for task in ended:
+                        watched.discard(task)
                     for task in [item for item in finished if item in branches]:
                         watched.discard(task)
                         answer = branches[task]
-                        try:
-                            await answer()
-                        except (OSError, RuntimeError):
+                        running_answer = asyncio.create_task(
+                            _awaited(answer), name=f"{task.get_name()}-answer"
+                        )
+                        answers[running_answer] = answer
+                        watched.add(running_answer)
+                    for task in [item for item in finished if item in answers]:
+                        watched.discard(task)
+                        answer = answers.pop(task)
+                        error = task.exception()
+                        if error is None:
+                            # `on_stop_request` returns only after the release has gone
+                            # out over the still-live channel (or after saying this
+                            # session held nothing to release). From here on, a reader
+                            # that ends on the socket closing mid-frame is the stopper
+                            # terminating a client we already let go of — not a contract
+                            # break — and the outcome is chosen on that reading.
+                            if answer is on_stop_request:
+                                progress.stop_honored = True
+                        elif isinstance(error, (OSError, RuntimeError)):
                             # The wind-down's rule, for the same reason: the Bridge
                             # releases everything it holds when the channel goes, so
                             # a command Core cannot deliver is recorded, not raised.
@@ -525,24 +557,22 @@ async def supervise_session(
                             else:
                                 progress.connection_cancel_failed = True
                         else:
-                            # `on_stop_request` returns only after the release has gone
-                            # out over the still-live channel (or after saying this
-                            # session held nothing to release). From here on, a reader
-                            # that ends on the socket closing mid-frame is the stopper
-                            # terminating a client we already let go of — not a contract
-                            # break — and the outcome is chosen on that reading.
-                            if answer is on_stop_request:
-                                progress.stop_honored = True
+                            # Not transport trouble: the same failure the inline
+                            # await used to raise through this loop, raised here so
+                            # a Core invariant is reported as one.
+                            raise error
+                    if ended and not answers:
+                        break
             finally:
-                branches_done = list(branches)
-                for task in (reader, client, *branches_done):
+                outstanding = [*branches, *answers]
+                for task in (reader, client, *outstanding):
                     task.cancel()
-                # A cancelled watcher may be blocked in a thread the caller owns;
-                # gather with return_exceptions so this wait cannot hang or raise
-                # before the transport is closed.
-                await asyncio.gather(reader, client, *branches_done, return_exceptions=True)
+                # A cancelled watcher or answer may be blocked in a thread the
+                # caller owns; gather with return_exceptions so this wait cannot
+                # hang or raise before the transport is closed.
+                await asyncio.gather(reader, client, *outstanding, return_exceptions=True)
 
-            if reader in finished:
+            if reader in ended:
                 error = reader.exception()
                 if isinstance(error, IpcProtocolError):
                     # The Bridge broke the negotiated contract — unless this run was
