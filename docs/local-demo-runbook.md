@@ -1368,3 +1368,17 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 - 测试 3 新（RED 逐字 `KeyError: 'jumps'`）：approach 受阻按名收口且第二个 MOVE 逐字 `jump=True`、跳后收窄即 CONFIRMED（`distance_blocks "2.00"`、`jumps "1"`）、collect chase 首次停滞后的修正步 `jump=True` 且拾取确认。四套件 362 passed；门（uv 口径）：pyright 0/0/0、ruff 0、format 512、全仓 pytest **4147 passed / 2 skipped**。
 
 **按实/不声明**：本发是**单元面交付**——尚无活体场景（Kin 与目标之间放一格台阶/矮墙）；真实游戏验证与其它活体工作一起被环境（内存守护后的暂停约定）推迟，恢复后有界补取（判据：jump 帧逐字、位置读数越过台阶、必要时 `APPROACH_PATH_BLOCKED` 的负例）。`retreat`（向后退）尚未接入同一反应，列为下一小步。
+
+## 六之四十五、retreat 也跳：向后退的被堵步与按名收口（2026-10-06，单元面交付；活体待窗口）
+
+**缺口**：`retreat` 是"一步一呼"的逃逸——一步没动（背后是墙）时它把整个窗口等完，报含糊的 `RETREAT_NOT_CONFIRMED`；而 approach/collect 在上一发已经有了对一格台阶的通用答案（跳）。
+
+**交付（先红后绿）**：把单发式的"等一个已移动的帧"改成**逐片读帧的循环**——每片 `RETREAT_STEP_SETTLE_SECONDS`（1.2s，过一条 Bridge 上报周期，不让"快到了的帧"被误当沉默），帧谓词只问"比已见更新"，移动与否由技能自己判：
+- 新帧**显示移动** → CONFIRMED（形状不变；用过跳才写 `details.jumps`）；
+- 新帧**显示原地** → 世界拒绝了这一步：发**一跳**（同一前进键 + `jump=True`，时长 `min(hold, 剩余-0.8s)`、下限 0.2s，随前进键同一出口释放），然后继续读帧；
+- **跳后又一个原地的新帧** → 按名 `RETREAT_PATH_BLOCKED`（details：hostile/bearing/hold_seconds/jumps/newest_checked_tick）；
+- **没有新帧** → 仍是 `RETREAT_NOT_CONFIRMED`（沉默与拒绝是两件事，各自有词）。
+
+**先红后绿**：2 新（跳后放行→CONFIRMED＋`jumps "1"`；跳后仍原地→`RETREAT_PATH_BLOCKED`、`post_tick 130`）＋1 旧钉按其设计意图更新（`test_retreat_reads_unknown_when_the_body_never_moved` 现在逐字断言第二跳的 MOVE `jump=True`——原来的单步 `[1.0, 0.0]` 形状正是被本卡改变的行为）。RED 首跑逐字 `KeyError: 'jumps'`；调试中发现测试侧的旧 admission 习惯（release 帧也吃队列）会让跳被跳过——新测试按"只有 hold 帧吃队列"钉住。四套件 364 passed；门（uv）：pyright 0/0/0、ruff 0、format 512、全仓 **4149 passed / 2 skipped**。
+
+**按实/不声明**：连续两发 nav 交付均为**单元面**；真实游戏场景（背面矮墙）与 3×3 窗口一起等环境窗口恢复后补取。`fight_back` 的接近与 `retreat` 的命名 hold 变体天然共享同一读帧循环（hold 变体在有跳时也会走同一路径），未单列。

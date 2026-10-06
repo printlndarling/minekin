@@ -116,6 +116,16 @@ RETREAT_FLEE_SECONDS: Final[float] = 4.0
 RETREAT_HOLD_MIN_SECONDS: Final[float] = 0.5
 RETREAT_HOLD_MAX_SECONDS: Final[float] = 5.0
 RETREAT_CONFIRM_BLOCKS: Final[float] = 0.5
+#: What a retreat does when the world refused its step. A fresh frame that shows the
+#: body in the same place is that refusal -- not slowness -- and one hop is the same
+#: answer the other walkers give a wall. `RETREAT_STEP_SETTLE_SECONDS` is how long each
+#: wait slice for that frame lives (past a bridge report cadence, so a frame that was
+#: coming is not mistaken for silence), the reserve keeps a concluding frame affordable
+#: after the hop, and the floor keeps the hop a hop.
+RETREAT_STEP_SETTLE_SECONDS: Final[float] = 1.2
+RETREAT_HOP_RESERVE_SECONDS: Final[float] = 0.8
+RETREAT_MIN_HOP_SECONDS: Final[float] = 0.2
+RETREAT_PATH_BLOCKED: Final[str] = "RETREAT_PATH_BLOCKED"
 #: How long one fight holds the attack key, and the bounds a named swing sits inside. A
 #: player's swing lands about twice a second, so this is a handful of swings at a naked
 #: hostile -- and still short enough to re-read the world with the thing maybe still in it.
@@ -1992,17 +2002,59 @@ class WorldSkills:
             lambda: self._send_walk(action_id, authority, forward=0.0)
         ):
             await self._sleep(hold, action_id=action_id)
-        post = await self._outlive_client(
-            self._observations.wait_until(
-                lambda latest: (
-                    latest.game_tick > pre.game_tick
-                    and (latest.generation != authority.generation or _walked_away(pre, latest))
+        # The frames after the step, one slice at a time: a frame that shows the
+        # body moved is the confirmation, and a frame that shows it in the same
+        # place is the step the world refused. That refusal gets the walker's one
+        # answer to a wall — a second step with jump held — and a further frame
+        # that still shows no movement ends the retreat by name instead of walking
+        # at the wall for the rest of the window. Silence stays `NOT_CONFIRMED`:
+        # no frame said the world refused anything.
+        hops = 0
+        seen_tick = pre.game_tick
+        post: WorldObservationValue | None = None
+        while True:
+            remaining_s = (deadline - monotonic_ns()) / 1_000_000_000
+            if remaining_s <= 0:
+                break
+            fresh = await self._outlive_client(
+                self._observations.wait_until(
+                    _newer_reading(seen_tick),
+                    timeout_s=min(remaining_s, RETREAT_STEP_SETTLE_SECONDS),
                 ),
-                timeout_s=max(0.1, (deadline - monotonic_ns()) / 1_000_000_000),
-            ),
-            action_id=action_id,
-        )
-        self.check_interruption(action_id)
+                action_id=action_id,
+            )
+            self.check_interruption(action_id)
+            if fresh is None:
+                # This slice said nothing; the deadline, not the slice, ends the wait.
+                continue
+            seen_tick = fresh.game_tick
+            if fresh.generation != authority.generation or _walked_away(pre, fresh):
+                post = fresh
+                break
+            if hops >= 1:
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason=RETREAT_PATH_BLOCKED,
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=fresh.game_tick,
+                    details={
+                        "hostile": hostile_type,
+                        "bearing": bearing,
+                        "hold_seconds": f"{hold:g}",
+                        "jumps": str(hops),
+                        "newest_checked_tick": str(fresh.game_tick),
+                    },
+                )
+            hops = 1
+            hop_seconds = min(
+                hold, max(RETREAT_MIN_HOP_SECONDS, remaining_s - RETREAT_HOP_RESERVE_SECONDS)
+            )
+            await self._send_walk(action_id, authority, forward=1.0, jump=True)
+            async with self._release_on_exit(
+                lambda: self._send_walk(action_id, authority, forward=0.0)
+            ):
+                await self._sleep(hop_seconds, action_id=action_id)
         if post is None:
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
@@ -2019,20 +2071,23 @@ class WorldSkills:
                 post_tick=post.game_tick,
             )
         moved = _horizontal_movement(pre, post)
-        assert moved is not None  # the wait only accepts a frame that reports movement
+        assert moved is not None  # the loop only accepts a frame that reports movement
+        details = {
+            "moved_blocks": f"{moved:.2f}",
+            "hostile": hostile_type,
+            "bearing": bearing,
+            "hold_seconds": f"{hold:g}",
+            "newest_checked_tick": str(post.game_tick),
+        }
+        if hops:
+            details["jumps"] = str(hops)
         return SkillOutcome(
             result=ActionResultClass.CONFIRMED,
             reason="",
             action_id=action_id,
             pre_tick=pre.game_tick,
             post_tick=post.game_tick,
-            details={
-                "moved_blocks": f"{moved:.2f}",
-                "hostile": hostile_type,
-                "bearing": bearing,
-                "hold_seconds": f"{hold:g}",
-                "newest_checked_tick": str(post.game_tick),
-            },
+            details=details,
         )
 
     async def fight_back(

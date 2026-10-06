@@ -3041,7 +3041,105 @@ def test_retreat_reads_unknown_when_the_body_never_moved() -> None:
         assert outcome.result is ActionResultClass.UNKNOWN
         assert outcome.reason == "RETREAT_NOT_CONFIRMED"
         moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
-        assert [message.forward for message in moves] == [1.0, 0.0]  # type: ignore[attr-defined]
+        # A fresh frame showing nothing moved is the refused step, and the refusal
+        # is answered with one hop — same keys as the other walkers' answer to a
+        # wall. No frame follows the hop here, so the honest word is still silence.
+        assert [message.forward for message in moves] == [1.0, 0.0, 1.0, 0.0]  # type: ignore[attr-defined]
+        assert [message.jump for message in moves] == [  # type: ignore[attr-defined]
+            False,
+            False,
+            True,
+            False,
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_a_blocked_retreat_hops_once_and_the_hop_that_frees_it_confirms() -> None:
+    """The retreat's answer to the same wall: the frame after the step says the
+    body did not move, so one hop follows, and a frame showing the body freed by
+    it confirms — with the hop said out loud in the outcome."""
+
+    async def scenario() -> None:
+        store = store_with(positioned(tick=100, entities=(slime_entity(tick=100),)))
+        skills, sender = skill_with(store)
+        away_yaw, _ = angle_to_degrees(dx=-2.0, dy=0.0, dz=0.0)
+        queued = [
+            positioned(tick=110, yaw=away_yaw),
+            positioned(tick=120, x=0.0),
+            positioned(tick=130, x=-1.5),
+        ]
+        moves_sent = 0
+
+        def answer(message_type: str) -> None:
+            nonlocal moves_sent
+            if message_type == MOVE_INPUT_TYPE:
+                moves_sent += 1
+                if moves_sent % 2 == 0:
+                    # The release of each walk; nothing new enters the world for it.
+                    return
+            if message_type in (AIM_INPUT_TYPE, MOVE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.retreat(authority=authority(), timeout_ns=10_000_000_000)
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 130
+        assert outcome.details["moved_blocks"] == "1.50"
+        assert outcome.details["jumps"] == "1"
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        assert [message.jump for message in moves] == [  # type: ignore[attr-defined]
+            False,
+            False,
+            True,
+            False,
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_a_hop_that_does_not_free_the_retreat_names_the_blocked_path() -> None:
+    """The hop is bounded: a second fresh frame that still shows the body in the
+    same place ends the retreat by name, not by walking at the wall for the rest
+    of the window."""
+
+    async def scenario() -> None:
+        store = store_with(positioned(tick=100, entities=(slime_entity(tick=100),)))
+        skills, sender = skill_with(store)
+        away_yaw, _ = angle_to_degrees(dx=-2.0, dy=0.0, dz=0.0)
+        queued = [
+            positioned(tick=110, yaw=away_yaw),
+            positioned(tick=120, x=0.0),
+            positioned(tick=130, x=0.0),
+        ]
+        moves_sent = 0
+
+        def answer(message_type: str) -> None:
+            nonlocal moves_sent
+            if message_type == MOVE_INPUT_TYPE:
+                moves_sent += 1
+                if moves_sent % 2 == 0:
+                    # The release of each walk; nothing new enters the world for it.
+                    return
+            if message_type in (AIM_INPUT_TYPE, MOVE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.retreat(authority=authority(), timeout_ns=10_000_000_000)
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "RETREAT_PATH_BLOCKED"
+        assert outcome.post_tick == 130
+        assert outcome.details["jumps"] == "1"
+        assert outcome.details["bearing"] == "away_from_visible_hostile"
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        assert [message.jump for message in moves] == [  # type: ignore[attr-defined]
+            False,
+            False,
+            True,
+            False,
+        ]
 
     asyncio.run(scenario())
 
