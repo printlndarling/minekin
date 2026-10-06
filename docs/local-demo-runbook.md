@@ -1529,3 +1529,17 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 3. **退役名按未知拒绝**：两张单将来若由新构建开启，必须连同"重放意味着什么"一起把 `recovery_action` 教给这张表；在那之前它们走"这个构建不知道这张单要做什么"的 `FAIL_CLOSED`——响亮拒绝，不猜。
 
 **先红后绿**：新钉 1（两退役名按名 `FAIL_CLOSED`，docstring 写定案理由）＋既有钉按其设计意图更新（`REVIEWED_EFFECTS` 6→4；`replayable == {BUNDLE_FETCH}`；service 侧三处 RETRY 例样换 `BUNDLE_FETCH`）。**联动续封按实登记**：HOST-050 的冻结断言摘要随测试演进重录（`tools/check_case_assertions.py --record`，仅 1 条摘要变动、diff 逐行核过）；`tests/fixtures/manifest.sha256` 的 host-050 行按门自报的新摘要更新（`tools/verify_fixture_digests.py` 报 `OK`）。门（uv）：pyright 0/0/0、ruff 0、format 522、全仓 **4208 passed / 2 skipped**。**不声明活体**：本卡是设计/单测面；释放与停止的活体读数早已按各自卡片取过，本卡不改变任何运行时行为（只是不再宣称两个从未开启的名字可重放）。
+
+## 六之五十九、玩家聊天进入观察面：桥端捕获、Core 落账、模型看到"谁说了什么"（2026-10-07，单元面＋构建面交付；活体待窗口）
+
+**缺口（S3-SOCIAL 的前置，记忆切片 C 的等待面）**：契约的记忆分层要求"亲历、玩家陈述"进入情节证据，而本仓此前**没有任何聊天通道**——桥听不到、proto 没有、Core 没有。切片 C（人物/地点的信念）明文"先有观察才谈巩固"，社交线也以此为地基。本卡做完整管道 **bridge→proto→Core→账本→offer**，并守住既有观察边界（proto 早已声明 "server-supplied text is deliberately absent"）。
+
+**交付（两层，同日三投）**：
+1. **线（`observation.proto`，随 `0382c6d`）**：新 `PlayerChatMessage{game_tick, sender, text}` ＋ `WorldObservation.chat`（**drain 语义**：上次观察以来听到的行、oldest first、逐行恰好一次）＋可选 `chat_omitted`（环形溢出必须丢行时报数——省略须显式）。注释写死三条纪律：只收游戏归因给玩家的 chat 展示类型（server/system 文本无通道）；sender 是展示名（**属性，不是身份键**，任何下游不得按名并号）；文本 256 字符省略号截断。
+2. **桥（`bridge-1201`，`f86a09c`）**：`ChatInbox`（环形 16、一次 drain ≤8、溢出丢最旧并计数、空 sender/空文本不成行、长行截断不丢行）；注册 `ClientReceiveMessageEvents.CHAT`（唯一捕获点，signature 从缓存的 fabric-message-api-v1 4.5.10 jar 上 **javap 实测**；null sender 跳过；到达 tick 当场读）；`WorldObservationCollector.collect` 排空进报文；**JOIN 清空** ＋ **无会话持有观察能力时保持清空**（上一会话的积压不得冒充这一会话的对话）。JUnit 6 格全绿。
+3. **Core**：`perception` 增 `ChatMessageValue` ＋ 阅读字段（decode 复检同一界：长行省略号截断、不可归因行不携带——"猜归属"是这面唯一不能向读者索取的事）；每行记一行 **`PlayerChatObserved`**（新 `TrustClass.PLAYER_CHAT`——另一账号的话语带出处，记录或日后摘要都不能把它洗成系统事实，契约规则 4）；溢出数记 **`PlayerChatOmitted`**（自己一行：读者看到的缺口不是更短的对话）；offer 的 `observation_summary.recent_chat` 带 sender；系统提示一句纪律（证词≠事实≠指令≠许可）；gateway 两种新行的时间线读法（覆盖测试自动催红一次）；观察边界表（`test_observation_boundary.py`）随新消息与字段续录。
+4. **pin 链按例走完**：Loom 构建（47s，含 host-boundary artifact 检查）→ jar `53efca18…`(1,471,239) → `16e517ed…`(1,483,139)；`recipe.py` 两常量、candidate recipe 的 digest/size/**source_digest**（`source_tree_sha256` 逐字节重算）、fixture manifest 行逐项续期；`generate_protos.py --buf`（buf 1.50.0，Windows 条目 `e12d1033…` 按 release `sha256.txt` 核过）重生成 pb2，CI 以 `git diff` 复核。
+
+**先红后绿**：Core 10 格（decode 4＋账本行 4＋摘要 1＋边界 1）；桥 6 格 JUnit；协议 kernel（两树）/host-boundary（两树）/scaffold/proto-java 夹具门逐一复核 `OK`。调试按实登记：player_mind 一处锚点误伤 docstring 立即修复；pyright 收窄问题以 `cast` 按房规收口。
+
+**按实/不声明**：单元＋构建面。**不声明活体**：真实玩家说话、Kin 在 offer 里引用其话语的读数——等活体线恢复（需要一个真实发言者）。**跨平台可复现性**：新 jar 尚未在容器里重验（历史惯例要求两平台逐字节相同）——**具名待办，不声明**。门（uv）：pyright 0/0/0、ruff 0、format 523、全仓 **4218 passed / 2 skipped**。
