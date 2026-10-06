@@ -39,6 +39,14 @@ DEFAULT_OBSERVATION_RADIUS_BLOCKS: Final[float] = 64.0
 MAX_FOOD: Final[int] = 20
 MAX_STACK_COUNT: Final[int] = 64
 
+# The bounds a player chat line is carried under. Vanilla's chat field holds on
+# the order of 256 characters; a longer line is clipped with an ellipsis (the
+# Bridge clips to the same bound before sending), and a sender name past its
+# bound is a broken report rather than a long name. Neither bound is ever used
+# to merge accounts: a display name is an attribute, not an identity key.
+MAX_CHAT_TEXT_CHARS: Final[int] = 256
+MAX_CHAT_SENDER_CHARS: Final[int] = 64
+
 
 class EntityReason(StrEnum):
     """Why a proposed entity was not passed up, as a stable evidence token."""
@@ -414,6 +422,21 @@ class GuiScreenValue:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatMessageValue:
+    """One player chat line as the client heard it — another account's words.
+
+    Kept with the sender's display name so every reader can attribute it, and
+    with the tick it arrived so a ledger row can be ordered against the rest of
+    the episode. Testimony from a real account: never a system fact, never a
+    permission, and never merged across accounts by name.
+    """
+
+    game_tick: int
+    sender: str
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class WorldObservationValue:
     """The recurring player-equivalent view, at the tick the Bridge names.
 
@@ -429,6 +452,16 @@ class WorldObservationValue:
     visible_entities: tuple[EntityCandidate, ...]
     mining: MiningProgressValue | None
     gui: GuiScreenValue | None
+    #: Player chat drained since the previous reading, oldest first, each line
+    #: bounded and attributed. Server/system text is deliberately absent — the
+    #: wire surface excludes it and nothing here invents a channel for it. The
+    #: default is the honest reading for constructions that predate the field;
+    #: the decode path always fills it explicitly.
+    chat: tuple[ChatMessageValue, ...] = ()
+    #: How many heard chat lines the drain could not carry (Bridge-side ring
+    #: overflow between observations). Zero means nothing was left out; a
+    #: positive count is reported as its own ledger row rather than implied.
+    chat_omitted: int = 0
 
 
 def world_observation_violations(

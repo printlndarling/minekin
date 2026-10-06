@@ -20,10 +20,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from minekin_core.domain.perception import (
+    MAX_CHAT_SENDER_CHARS,
+    MAX_CHAT_TEXT_CHARS,
     AimFace,
     AimKind,
     AimTargetValue,
     BlockTargetValue,
+    ChatMessageValue,
     EntityCandidate,
     GuiScreenValue,
     InventoryStackValue,
@@ -164,6 +167,33 @@ def decode_gui(gui: observation_pb2.GuiScreen) -> GuiScreenValue:
     )
 
 
+def decode_chat(
+    messages: Sequence[observation_pb2.PlayerChatMessage],
+) -> tuple[ChatMessageValue, ...]:
+    """The drained player-chat lines, held to their bounds again at this edge.
+
+    The Bridge already holds the same bounds before sending; they are re-applied
+    here because the wire is a stranger, not because the Bridge is doubted. A
+    line past the text bound is clipped with an ellipsis — a long line is still
+    a line — while a line with no sender or a sender past its bound is skipped:
+    an unattributable quote would make every later reader guess whose words it
+    is, and a guess about attribution is the one thing this surface may not ask
+    of its readers. Order is the wire's own (oldest first).
+    """
+
+    carried: list[ChatMessageValue] = []
+    for message in messages:
+        sender = message.sender
+        if not sender or len(sender) > MAX_CHAT_SENDER_CHARS or not message.text:
+            continue
+        text = message.text
+        clipped = (
+            text if len(text) <= MAX_CHAT_TEXT_CHARS else text[: MAX_CHAT_TEXT_CHARS - 1] + "…"
+        )
+        carried.append(ChatMessageValue(game_tick=message.game_tick, sender=sender, text=clipped))
+    return tuple(carried)
+
+
 def decode_world_observation(
     message: observation_pb2.WorldObservation,
 ) -> WorldObservationValue:
@@ -183,4 +213,6 @@ def decode_world_observation(
         visible_entities=decode_visible_entities(message.visible_entities),
         mining=decode_mining(message.mining) if message.HasField("mining") else None,
         gui=decode_gui(message.gui) if message.HasField("gui") else None,
+        chat=decode_chat(message.chat),
+        chat_omitted=(int(message.chat_omitted) if message.HasField("chat_omitted") else 0),
     )

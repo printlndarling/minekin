@@ -285,8 +285,18 @@ class TradeOffer(_message.Message):
     disabled: bool
     def __init__(self, first_item_id: _Optional[str] = ..., first_count: _Optional[int] = ..., second_item_id: _Optional[str] = ..., second_count: _Optional[int] = ..., sell_item_id: _Optional[str] = ..., sell_count: _Optional[int] = ..., uses: _Optional[int] = ..., max_uses: _Optional[int] = ..., disabled: bool = ...) -> None: ...
 
+class PlayerChatMessage(_message.Message):
+    __slots__ = ("game_tick", "sender", "text")
+    GAME_TICK_FIELD_NUMBER: _ClassVar[int]
+    SENDER_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    game_tick: int
+    sender: str
+    text: str
+    def __init__(self, game_tick: _Optional[int] = ..., sender: _Optional[str] = ..., text: _Optional[str] = ...) -> None: ...
+
 class WorldObservation(_message.Message):
-    __slots__ = ("generation", "game_tick", "self", "aim", "inventory", "visible_entities", "mining", "gui")
+    __slots__ = ("generation", "game_tick", "self", "aim", "inventory", "visible_entities", "mining", "gui", "chat", "chat_omitted")
     GENERATION_FIELD_NUMBER: _ClassVar[int]
     GAME_TICK_FIELD_NUMBER: _ClassVar[int]
     SELF_FIELD_NUMBER: _ClassVar[int]
@@ -295,6 +305,8 @@ class WorldObservation(_message.Message):
     VISIBLE_ENTITIES_FIELD_NUMBER: _ClassVar[int]
     MINING_FIELD_NUMBER: _ClassVar[int]
     GUI_FIELD_NUMBER: _ClassVar[int]
+    CHAT_FIELD_NUMBER: _ClassVar[int]
+    CHAT_OMITTED_FIELD_NUMBER: _ClassVar[int]
     generation: int
     game_tick: int
     self: SelfState
@@ -303,4 +315,6 @@ class WorldObservation(_message.Message):
     visible_entities: _containers.RepeatedCompositeFieldContainer[VisibleEntity]
     mining: MiningProgress
     gui: GuiScreen
-    def __init__(self_, generation: _Optional[int] = ..., game_tick: _Optional[int] = ..., self: _Optional[_Union[SelfState, _Mapping]] = ..., aim: _Optional[_Union[AimTarget, _Mapping]] = ..., inventory: _Optional[_Union[InventorySummary, _Mapping]] = ..., visible_entities: _Optional[_Iterable[_Union[VisibleEntity, _Mapping]]] = ..., mining: _Optional[_Union[MiningProgress, _Mapping]] = ..., gui: _Optional[_Union[GuiScreen, _Mapping]] = ...) -> None: ...
+    chat: _containers.RepeatedCompositeFieldContainer[PlayerChatMessage]
+    chat_omitted: int
+    def __init__(self_, generation: _Optional[int] = ..., game_tick: _Optional[int] = ..., self: _Optional[_Union[SelfState, _Mapping]] = ..., aim: _Optional[_Union[AimTarget, _Mapping]] = ..., inventory: _Optional[_Union[InventorySummary, _Mapping]] = ..., visible_entities: _Optional[_Iterable[_Union[VisibleEntity, _Mapping]]] = ..., mining: _Optional[_Union[MiningProgress, _Mapping]] = ..., gui: _Optional[_Union[GuiScreen, _Mapping]] = ..., chat: _Optional[_Iterable[_Union[PlayerChatMessage, _Mapping]]] = ..., chat_omitted: _Optional[int] = ...) -> None: ...

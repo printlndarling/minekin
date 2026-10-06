@@ -28,3 +28,10 @@ class TrustClass(StrEnum):
     #: wrote from one it agreed to keep, without asking who ran the check
     #: (`docs/memory-retrieval-consolidation-contract.md`, rule 7).
     MODEL_SUGGESTED = "MODEL_SUGGESTED"
+    #: A real account's words, heard through the client. Testimony with its sender
+    #: attached — never a system fact, never a permission, and never upgraded by
+    #: being summarised later (the memory contract's rule 4). Its own class because
+    #: a later reader must be able to tell "a player said this" from "the world is
+    #: like this", and because display names are attributes: identity is keyed on
+    #: accounts, never merged by name.
+    PLAYER_CHAT = "PLAYER_CHAT"

@@ -18,6 +18,7 @@ from google.protobuf.message import Message
 
 from minekin_core.adapters.bridge.world_observation import decode_world_observation
 from minekin_core.domain.perception import (
+    MAX_CHAT_TEXT_CHARS,
     AimFace,
     AimKind,
     IntegrityViolation,
@@ -385,3 +386,74 @@ def test_a_respawn_affordance_on_a_living_body_is_not_admitted() -> None:
     wire.self.respawn_available = True
     decoded = decode_world_observation(wire)
     assert IntegrityViolation.RESPAWN_AVAILABLE_WHILE_ALIVE in world_observation_violations(decoded)
+
+
+# ---------------------------------------------------------------------------
+# Chat: a drain of another account's words, bounded and attributed
+# ---------------------------------------------------------------------------
+
+
+def test_drained_chat_lines_decode_in_arrival_order_with_their_senders() -> None:
+    reading = decode_world_observation(
+        wire_observation(
+            chat=[
+                observation_pb2.PlayerChatMessage(game_tick=98, sender="Alex", text="need wood?"),
+                observation_pb2.PlayerChatMessage(
+                    game_tick=100, sender="Steve", text="the cave is north"
+                ),
+            ]
+        )
+    )
+
+    assert [message.sender for message in reading.chat] == ["Alex", "Steve"]
+    assert [message.text for message in reading.chat] == ["need wood?", "the cave is north"]
+    assert reading.chat[0].game_tick == 98
+    assert reading.chat_omitted == 0
+
+
+def test_a_line_past_the_text_bound_is_clipped_with_an_ellipsis_not_dropped() -> None:
+    """A long line is still a line: it is carried clipped — the goal-history
+    lesson applied at this edge before it bites — and never silently cut."""
+
+    reading = decode_world_observation(
+        wire_observation(
+            chat=[observation_pb2.PlayerChatMessage(game_tick=100, sender="Alex", text="x" * 400)]
+        )
+    )
+
+    assert len(reading.chat) == 1
+    text = reading.chat[0].text
+    assert len(text) == MAX_CHAT_TEXT_CHARS
+    assert text.endswith("…")
+
+
+def test_an_unattributable_line_is_not_carried() -> None:
+    """A line with no sender, a sender past its bound, or no text at all is
+    skipped rather than repaired — every later reader would otherwise have to
+    guess whose words these are, and a guess about attribution is the one thing
+    this surface may not ask of its readers."""
+
+    reading = decode_world_observation(
+        wire_observation(
+            chat=[
+                observation_pb2.PlayerChatMessage(game_tick=100, sender="", text="from nobody"),
+                observation_pb2.PlayerChatMessage(
+                    game_tick=100, sender="N" * 200, text="too long a name"
+                ),
+                observation_pb2.PlayerChatMessage(game_tick=100, sender="Alex", text=""),
+                observation_pb2.PlayerChatMessage(game_tick=100, sender="Alex", text="fine"),
+            ]
+        )
+    )
+
+    assert [message.text for message in reading.chat] == ["fine"]
+
+
+def test_no_chat_reads_as_no_chat_and_an_omission_is_carried_explicitly() -> None:
+    quiet = decode_world_observation(wire_observation())
+    assert quiet.chat == ()
+    assert quiet.chat_omitted == 0
+
+    lossy = decode_world_observation(wire_observation(chat_omitted=5))
+    assert lossy.chat == ()
+    assert lossy.chat_omitted == 5

@@ -29,6 +29,10 @@ OBSERVATION_MESSAGES = (
     observation_pb2.MiningProgress,
     observation_pb2.GuiScreen,
     observation_pb2.WorldObservation,
+    # One heard chat line: a thing a player at the keyboard reads off the chat HUD,
+    # with the sender the client attributes it to — same side of the boundary as
+    # the rest of this surface, under the same guard.
+    observation_pb2.PlayerChatMessage,
 )
 
 # Concepts a player cannot read off the screen. A field whose name mentions one
@@ -82,6 +86,18 @@ REVIEWED_WORLD_OBSERVATION_FIELDS = {
     "visible_entities",
     "mining",
     "gui",
+    # Reviewed for chat: the drained player lines (what the client heard a player
+    # say — a thing a player reads off the chat HUD) and the count the drain could
+    # not carry. The count is a fact about the channel, not the world, and it is
+    # the surface's way of stating an omission instead of implying one.
+    "chat",
+    "chat_omitted",
+}
+
+REVIEWED_CHAT_FIELDS = {
+    "game_tick",
+    "sender",
+    "text",
 }
 
 
@@ -108,6 +124,12 @@ def test_the_recurring_observation_has_exactly_the_reviewed_fields() -> None:
     descriptor = observation_pb2.WorldObservation.DESCRIPTOR
 
     assert {field.name for field in descriptor.fields} == (REVIEWED_WORLD_OBSERVATION_FIELDS)
+
+
+def test_a_chat_line_has_exactly_the_reviewed_fields() -> None:
+    descriptor = observation_pb2.PlayerChatMessage.DESCRIPTOR
+
+    assert {field.name for field in descriptor.fields} == REVIEWED_CHAT_FIELDS
 
 
 def test_no_observation_field_names_a_concept_a_player_cannot_see() -> None:

@@ -75,6 +75,7 @@ from minekin_core.domain.perception import (
     AimKind,
     AimTargetValue,
     BlockTargetValue,
+    ChatMessageValue,
     EntityCandidate,
     GuiScreenValue,
     InventoryStackValue,
@@ -710,6 +711,22 @@ def test_a_commitment_never_rides_a_refused_answer_or_a_rule_step() -> None:
     assert ruled_intent.kind is MindDecisionKind.INTENT
     assert ruled_intent.source == DECISION_FROM_LOCAL
     assert ruled_intent.commitment is None
+
+
+def test_the_summary_carries_recent_chat_attributed_and_stays_silent_when_quiet() -> None:
+    """Another account's words reach the answerer with their sender attached; a quiet
+    reading carries no key at all rather than an empty reassurance, and the text is
+    never rewritten here — the summary quotes what was heard."""
+
+    spoken = replace(
+        reading(aim=block_aim()),
+        chat=(ChatMessageValue(game_tick=98, sender="Alex", text="need wood?"),),
+    )
+    summary = observation_summary(GOAL, spoken)
+    assert summary["recent_chat"] == [{"sender": "Alex", "text": "need wood?"}]
+
+    quiet = observation_summary(GOAL, reading(aim=block_aim()))
+    assert "recent_chat" not in quiet
 
 
 def test_a_use_spent_on_one_target_is_not_replayed_until_the_aim_moves() -> None:

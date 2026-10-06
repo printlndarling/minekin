@@ -105,6 +105,8 @@ from minekin_core.adapters.sqlite.session_log import (
     INPUT_RELEASED,
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
+    PLAYER_CHAT_OBSERVED,
+    PLAYER_CHAT_OMITTED,
     PLAYER_STATE_OBSERVED,
     RESOURCE_PACK_POLICY_APPLIED,
     SESSION_IDENTITY_COMPARED,
@@ -1135,6 +1137,41 @@ def _commitment_verdict(
     )
 
 
+def _chat_records(
+    reading: WorldObservationValue,
+) -> list[tuple[str, dict[str, Any], EventSource, TrustClass]]:
+    """The ledger rows one reading's chat owes, as data — recorded by the caller.
+
+    A pure function of the reading, so the event type, payload and trust class
+    of every row are pinned by unit cells rather than argued from a live run.
+    One row per heard line under PLAYER_CHAT: another account's words with
+    attribution, and a later summary cannot wash the attribution off (memory
+    contract rule 4). The omitted count is its own row under BRIDGE_FILTERED —
+    that row is about the channel, not about any account's words — so a reader
+    never takes a shorter conversation for the whole one.
+    """
+
+    rows: list[tuple[str, dict[str, Any], EventSource, TrustClass]] = [
+        (
+            PLAYER_CHAT_OBSERVED,
+            {"sender": message.sender, "text": message.text, "game_tick": message.game_tick},
+            EventSource.BRIDGE,
+            TrustClass.PLAYER_CHAT,
+        )
+        for message in reading.chat
+    ]
+    if reading.chat_omitted:
+        rows.append(
+            (
+                PLAYER_CHAT_OMITTED,
+                {"omitted": reading.chat_omitted, "game_tick": reading.game_tick},
+                EventSource.BRIDGE,
+                TrustClass.BRIDGE_FILTERED,
+            )
+        )
+    return rows
+
+
 def mind_for_run(
     kin_id: str,
     environ: Mapping[str, str] | None = None,
@@ -1826,6 +1863,8 @@ async def start_and_supervise(
                 source=EventSource.BRIDGE,
                 trust_class=TrustClass.BRIDGE_FILTERED,
             )
+        for event_type, chat_payload, chat_source, chat_trust in _chat_records(reading):
+            await record(event_type, chat_payload, source=chat_source, trust_class=chat_trust)
 
     skill_outcome: list[SkillSequence | None] = [None]
     skill_stop: list[str] = [""]

@@ -94,6 +94,15 @@ COMMITMENT_RECORDED = "CommitmentRecorded"
 #: refusal is worth a row for the same reason a stop is — the reader of a run that
 #: promised itself nothing should see whether nothing was proposed or everything was.
 COMMITMENT_REJECTED = "CommitmentRejected"
+#: Player chat the client heard, one row per line, carrying its sender: another
+#: account's words with attribution, recorded because the memory contract's episode
+#: layer is exactly this (亲历、玩家陈述) and because trust must survive every later
+#: summary. Server/system text never reaches this row — the wire surface excludes it.
+PLAYER_CHAT_OBSERVED = "PlayerChatObserved"
+#: The count of heard chat lines a drain could not carry (Bridge-side ring
+#: overflow). Its own row so an omission is stated rather than implied — a reader
+#: of the ledger sees the gap, not a shorter conversation.
+PLAYER_CHAT_OMITTED = "PlayerChatOmitted"
 
 SESSION_EVENT_TYPES = frozenset(
     {
@@ -116,6 +125,8 @@ SESSION_EVENT_TYPES = frozenset(
         PLAYER_STATE_OBSERVED,
         COMMITMENT_RECORDED,
         COMMITMENT_REJECTED,
+        PLAYER_CHAT_OBSERVED,
+        PLAYER_CHAT_OMITTED,
     }
 )
 

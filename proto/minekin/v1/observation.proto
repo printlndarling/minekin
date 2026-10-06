@@ -287,6 +287,24 @@ message TradeOffer {
   bool disabled = 9;
 }
 
+// One player chat line the client received, as the client heard it.
+//
+// Only chat the game attributes to a player is captured — the client's own
+// chat display type — and the server/system text this file already excludes
+// elsewhere stays excluded here: a Kin that treated a server's words as a
+// player's would misattribute testimony, and one that treated either as an
+// instruction would follow text nobody gave it authority to bind. `sender` is
+// the display name the client received, an attribute and not an identity key;
+// nothing downstream may merge accounts by name. The text is another
+// account's words: bounded here (the Bridge clips past the cap with an
+// ellipsis, it never invents a shorter fact), kept with its sender so every
+// reader can attribute it, and never a system fact or a permission.
+message PlayerChatMessage {
+  uint64 game_tick = 1;
+  string sender = 2;
+  string text = 3;
+}
+
 // The recurring player-equivalent view: where the Kin is, what its crosshair is on,
 // what it carries, what it can see, and what is open.
 //
@@ -298,6 +316,12 @@ message TradeOffer {
 // The Bridge publishes it on a fixed tick interval while a Core session holds the
 // world-observation capability, so its cost is bounded by a constant of the build
 // and not by how often somebody asks.
+//
+// `chat` is a drain, not a snapshot: each observation carries the player chat the
+// client heard since the previous one (oldest first, bounded count), so a message
+// is delivered exactly once across the stream. An interval that heard more than
+// the count allows reports the excess as `chat_omitted` rather than dropping it
+// silently — the contract's rule that what is not carried is stated, not implied.
 message WorldObservation {
   uint64 generation = 1;
   uint64 game_tick = 2;
@@ -307,5 +331,9 @@ message WorldObservation {
   repeated VisibleEntity visible_entities = 6;
   optional MiningProgress mining = 7;
   GuiScreen gui = 8;
-  reserved 9 to 12;
+  repeated PlayerChatMessage chat = 9;
+  // How many heard chat lines this drain could not carry (ring overflow between
+  // observations). Absent or zero means nothing was left out.
+  optional uint32 chat_omitted = 10;
+  reserved 11 to 12;
 }

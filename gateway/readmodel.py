@@ -44,6 +44,8 @@ from minekin_core.adapters.sqlite.session_log import (
     INPUT_RELEASED,
     JOIN_OBSERVED,
     PLAYABLE_ESTABLISHED,
+    PLAYER_CHAT_OBSERVED,
+    PLAYER_CHAT_OMITTED,
     PLAYER_STATE_OBSERVED,
     PROCESS_FAILED,
     PROCESS_STARTED,
@@ -153,6 +155,11 @@ _AUTH_DETAIL_FIELDS: Final = (
 # which has no second home here.
 _COMMITMENT_DETAIL_FIELDS: Final = ("text", "due", "evidence_ref")
 _COMMITMENT_REJECTED_DETAIL_FIELDS: Final = ("reason_code", "evidence_ref", "text_chars")
+
+# The chat rows: a heard line shows who said it and what they said; the omission
+# row shows only the count — there are no words to show, which is the point.
+_CHAT_DETAIL_FIELDS: Final = ("sender", "text")
+_CHAT_OMITTED_DETAIL_FIELDS: Final = ("omitted",)
 
 # The skill-step row is what a running autonomous/skill session leaves in the ledger: one
 # concluded step with the verdict of the *later world readings*, never the Bridge's own
@@ -441,6 +448,10 @@ def _detail(row: EventRow) -> str | None:
         return _named_detail(row.payload, _COMMITMENT_DETAIL_FIELDS)
     if row.event_type == COMMITMENT_REJECTED:
         return _named_detail(row.payload, _COMMITMENT_REJECTED_DETAIL_FIELDS)
+    if row.event_type == PLAYER_CHAT_OBSERVED:
+        return _named_detail(row.payload, _CHAT_DETAIL_FIELDS)
+    if row.event_type == PLAYER_CHAT_OMITTED:
+        return _named_detail(row.payload, _CHAT_OMITTED_DETAIL_FIELDS)
     parts = [
         f"{name}={row.payload[name]}"
         for name in _DETAIL_FIELDS
@@ -1107,6 +1118,12 @@ TIMELINE_READING: Final[Mapping[str, tuple[str, str]]] = {
     JOIN_OBSERVED: ("server_feedback", "applied"),
     PLAYABLE_ESTABLISHED: ("session", "applied"),
     PLAYER_STATE_OBSERVED: ("observation", "applied"),
+    # A heard chat line is an observation of another account's words; the row was
+    # applied (recorded as it arrived). The omitted count is the one chat row whose
+    # outcome reads as a gap rather than a fact — `unknown` says "something here is
+    # not on the panel", which is exactly what the row exists to say.
+    PLAYER_CHAT_OBSERVED: ("observation", "applied"),
+    PLAYER_CHAT_OMITTED: ("observation", "unknown"),
     INPUT_LEASE_GRANTED: ("input", "applied"),
     INPUT_RELEASED: ("input", "released"),
     INPUT_REFUSED: ("input", "rejected"),

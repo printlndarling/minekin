@@ -1000,6 +1000,16 @@ def observation_summary(
         "alive": reading.self_state.alive,
         "respawn_available": reading.self_state.respawn_available,
     }
+    if reading.chat:
+        # What other players said to the client, in arrival order: another
+        # account's words with their sender attached. Testimony the answerer may
+        # weigh — and must not mistake for a fact, a system instruction or a
+        # permission. Absent entirely when nobody spoke, rather than an empty
+        # reassurance. Bounded by construction: the reading carries one drained
+        # batch, each line already held to its own bound.
+        summary["recent_chat"] = [
+            {"sender": message.sender, "text": message.text} for message in reading.chat
+        ]
     if milestone is not None:
         summary["goal"] = {
             "product_id": milestone.product_id,
