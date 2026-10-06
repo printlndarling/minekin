@@ -3300,6 +3300,188 @@ def test_approach_entity_walks_until_the_reading_reports_it_within_the_named_dis
     asyncio.run(scenario())
 
 
+def test_a_step_that_closes_nothing_makes_the_approach_hop() -> None:
+    """A blocked step is not a slow one, and the walk has an answer for it.
+
+    Walking in this game clears one-block rises with a hop, so an approach whose
+    step closed none of the gap goes out with the jump key held: the second step
+    is a different move from the first, not the same walk fired again at a wall.
+    The reading after it tells whether the hop worked, and only then does the
+    approach conclude by name.
+    """
+
+    async def scenario() -> None:
+        start = trader_entity(tick=100, at=6.0)
+        store = store_with(positioned(tick=100, entities=(start,)))
+        skills, sender = skill_with(store)
+        yaw, pitch = angle_to_degrees(
+            dx=start.relative_x, dy=start.relative_y - EYE_HEIGHT_BLOCKS, dz=start.relative_z
+        )
+        still = trader_entity(tick=120, at=6.0)
+        queued = [
+            positioned(tick=110, yaw=yaw, pitch=pitch, entities=(start,)),
+            positioned(tick=120, entities=(still,)),
+            positioned(tick=130, yaw=yaw, pitch=pitch, entities=(still,)),
+            positioned(tick=140, entities=(trader_entity(tick=140, at=6.0),)),
+        ]
+        moves_sent = 0
+
+        def answer(message_type: str) -> None:
+            nonlocal moves_sent
+            if message_type == MOVE_INPUT_TYPE:
+                moves_sent += 1
+                if moves_sent % 2 == 0:
+                    return
+            if message_type in (AIM_INPUT_TYPE, MOVE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.approach_entity(
+            authority=authority(),
+            target_entity_type="minecraft:wandering_trader",
+            stop_within=2.5,
+            timeout_ns=10_000_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "APPROACH_PATH_BLOCKED"
+        assert outcome.details["steps"] == "2"
+        assert outcome.details["jumps"] == "1"
+        assert outcome.details["distance_blocks"] == "6.00"
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        # [walk, release, hop-walk, release]: the second step held the jump key,
+        # and the release that ended it let the key go like every other walk.
+        assert [message.jump for message in moves] == [  # type: ignore[attr-defined]
+            False,
+            False,
+            True,
+            False,
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_a_hop_that_clears_the_rise_lets_the_approach_confirm() -> None:
+    """The hop is a reaction, not a failure: a block costing one step does not
+    end the approach when the reading after the hop shows the gap closing."""
+
+    async def scenario() -> None:
+        start = trader_entity(tick=100, at=6.0)
+        store = store_with(positioned(tick=100, entities=(start,)))
+        skills, sender = skill_with(store)
+        yaw, pitch = angle_to_degrees(
+            dx=start.relative_x, dy=start.relative_y - EYE_HEIGHT_BLOCKS, dz=start.relative_z
+        )
+        still = trader_entity(tick=120, at=6.0)
+        closer = trader_entity(tick=140, at=2.0)
+        queued = [
+            positioned(tick=110, yaw=yaw, pitch=pitch, entities=(start,)),
+            positioned(tick=120, entities=(still,)),
+            positioned(tick=130, yaw=yaw, pitch=pitch, entities=(still,)),
+            positioned(tick=140, entities=(closer,)),
+        ]
+        moves_sent = 0
+
+        def answer(message_type: str) -> None:
+            nonlocal moves_sent
+            if message_type == MOVE_INPUT_TYPE:
+                moves_sent += 1
+                if moves_sent % 2 == 0:
+                    return
+            if message_type in (AIM_INPUT_TYPE, MOVE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.approach_entity(
+            authority=authority(),
+            target_entity_type="minecraft:wandering_trader",
+            stop_within=2.5,
+            timeout_ns=10_000_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 140
+        assert outcome.details["distance_blocks"] == "2.00"
+        assert outcome.details["steps"] == "2"
+        assert outcome.details["jumps"] == "1"
+
+    asyncio.run(scenario())
+
+
+def test_the_collect_chase_hops_once_the_gap_stops_closing() -> None:
+    """The same reaction, on the one walk that already counts stalls: the first
+    correction that closes nothing goes out with the jump key, and the reading
+    after it decides — a pickup means the hop cleared the rise."""
+
+    async def scenario() -> None:
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=100, distance=6.0),),
+            )
+        )
+        skills, sender = skill_with(store)
+        queued = [
+            # The walk's arrival reading: still six blocks away.
+            reading(
+                tick=110,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=110, distance=6.0),),
+            ),
+            # The reading after the first walk: the gap did not close.
+            reading(
+                tick=120,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=120, distance=6.0),),
+            ),
+            # The arrival reading for the hop step.
+            reading(
+                tick=130,
+                inventory_value=inventory(100),
+                entities=(oak_log_drop(tick=130, distance=6.0),),
+            ),
+            # The reading after the hop: the item is in the bag.
+            reading(
+                tick=140,
+                inventory_value=inventory(140, (0, "minecraft:oak_log", 1)),
+                entities=(),
+            ),
+        ]
+        moves_sent = 0
+
+        def answer(message_type: str) -> None:
+            nonlocal moves_sent
+            if message_type == MOVE_INPUT_TYPE:
+                moves_sent += 1
+                if moves_sent % 2 == 0:
+                    return
+            if message_type in (AIM_INPUT_TYPE, MOVE_INPUT_TYPE) and queued:
+                store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.collect_dropped(
+            item_id="minecraft:oak_log",
+            authority=authority(),
+            walk_seconds=0.0,
+            timeout_ns=10_000_000_000,
+        )
+
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert outcome.post_tick == 140
+        assert outcome.details["steps"] == "2"
+        assert outcome.details["jumps"] == "1"
+        moves = [message for kind, message in sender.sent if kind == MOVE_INPUT_TYPE]
+        assert [message.jump for message in moves] == [  # type: ignore[attr-defined]
+            False,
+            False,
+            True,
+            False,
+        ]
+
+    asyncio.run(scenario())
+
+
 def test_approach_entity_concludes_by_name_on_refusals_and_a_body_already_within() -> None:
     async def scenario() -> None:
         empty_store = store_with(reading(tick=100))

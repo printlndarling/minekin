@@ -1356,3 +1356,15 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 3. 第 3 次决策两次尝试无响应头（`elapsed_ms: 41639`、`phase: "open"`）→ 心落 `HOLD`＋`model_refusal: "TIMEOUT"`、`stop_reason: "TIMEOUT"`、`goal_met: false`、`model_calls: 3`、`model_spent_micro: 26`。
 
 **按实/不声明**：第三次决策期间本侧为回收环境发过一次协作停（回执逐字 `release {"asked":[187],"released":[187],"unconfirmed":[]}`、`terminated:[187]`——客户端在**活通道**上先松键、后被杀，这是停止路径的又一枚确认，但它出自环境回收、不是本卡的一次干净停止读数）；domain 随后读到自主循环自己的终局（"the autonomous loop reached its own verdict"）、收尾 `session exited 0`、`outcome STOPPED_ON_REQUEST`、`input_release_failed: false`。**这是一发部分读数：终局与清理竞争，不作为干净闭环；3×3 终产物缺口不变**。与上一发 `b00524d8…` 同形：模型驱动真实两步后撞约 41s 端点停滞按名 `TIMEOUT` 停。**本卡活体半边因环境（内存守护）不再自行重跑，等操作者指示；期间推进不依赖该跑的工作。**
+
+## 六之四十四、被堵住的一步会跳：approach 与 collect 的受阻反应（2026-10-06，单元面交付；活体待窗口）
+
+**缺口（真实、通用）**：两个走向目标的走法都不会察觉"这一步根本没动"——`approach_entity` 每步重测距离但受阻只是白烧一步，直到步数/窗口用尽后含糊地报 `APPROACH_NOT_CONFIRMED`；`collect_dropped` 会数停滞但只以重新瞄准作答，对着墙重瞄不会更近。而这个游戏给每个行走者的标准答案一步就有：**按住跳键走一步（跳上/越过一格台阶）**。
+
+**交付（先红后绿）**：
+- `_send_walk` 增 `jump` 参数（`MoveInput.jump`——脚本 hold 的 `--hold-jump` 走的同一个字段，协议两肩早已在位）；`_walk_toward` 增 `hop`（该步按住跳键，随前进键同一次松键放掉）。
+- **受阻判据**：一步收窄的地面距离 < `WALK_HOP_STALL_BLOCKS`（0.1 格）即"没动"——半途读数也有一整步的收窄，所以这是墙不是慢。`approach_entity`：第一个受阻步武装跳（下一步带 jump），**连续两个受阻步**（第一跳没清掉）按名 `APPROACH_PATH_BLOCKED` 收口（details 带 steps/jumps/distance），不再对墙走到窗口尽头。`collect_dropped`：第一次停滞修正（沿用其既有 `stalled` 计数）即武装跳，原有 `COLLECT_APPROACH_STALLED` 的收口不变。
+- **读数只在真的跳过时才写**：`details.jumps` 仅在 >0 时出现（未遇阻的走法形状一字不动）。
+- 测试 3 新（RED 逐字 `KeyError: 'jumps'`）：approach 受阻按名收口且第二个 MOVE 逐字 `jump=True`、跳后收窄即 CONFIRMED（`distance_blocks "2.00"`、`jumps "1"`）、collect chase 首次停滞后的修正步 `jump=True` 且拾取确认。四套件 362 passed；门（uv 口径）：pyright 0/0/0、ruff 0、format 512、全仓 pytest **4147 passed / 2 skipped**。
+
+**按实/不声明**：本发是**单元面交付**——尚无活体场景（Kin 与目标之间放一格台阶/矮墙）；真实游戏验证与其它活体工作一起被环境（内存守护后的暂停约定）推迟，恢复后有界补取（判据：jump 帧逐字、位置读数越过台阶、必要时 `APPROACH_PATH_BLOCKED` 的负例）。`retreat`（向后退）尚未接入同一反应，列为下一小步。

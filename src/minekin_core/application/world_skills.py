@@ -231,6 +231,17 @@ APPROACH_MAX_STEP_SECONDS: Final[float] = 2.5
 APPROACH_WINDOW_RESERVE_SECONDS: Final[float] = 1.2
 APPROACH_MAX_STEPS: Final[int] = 6
 
+#: What a blocked step costs and what the walk does about it. A step that closed
+#: less than this moved nothing — a reading caught mid-stride still shows a stride's
+#: worth of closing, so this is a wall, not slowness. The answer is the one move the
+#: game gives every walker for a one-block rise: hold jump for the next step. Two
+#: blocked steps in a row (the first arming the hop, the second saying the hop did
+#: not clear it) end the approach under its own name rather than walking at a wall
+#: until the window runs out.
+WALK_HOP_STALL_BLOCKS: Final[float] = 0.1
+APPROACH_MAX_BLOCKED_STEPS: Final[int] = 2
+APPROACH_PATH_BLOCKED: Final[str] = "APPROACH_PATH_BLOCKED"
+
 #: How long a `collect` waits for a felled item to register as a rendered entity
 #: before it concludes the drop is not in view. A `break` that CONFIRMED on the same
 #: tick can leave the very next frame still empty — the failure `collect` used to end
@@ -351,7 +362,9 @@ def _wire_target(target: BlockTargetValue) -> control_pb2.BlockTarget:
     return control_pb2.BlockTarget(x=target.x, y=target.y, z=target.z, face=face)
 
 
-def _chase_details(steps: int, newest: WorldObservationValue, *, item_id: str) -> dict[str, str]:
+def _chase_details(
+    steps: int, newest: WorldObservationValue, *, item_id: str, jumps: int = 0
+) -> dict[str, str]:
     """What the chase did, in the field the run document already carries for it.
 
     `post_tick` keeps its meaning — the reading that confirmed the pickup, so a
@@ -359,10 +372,13 @@ def _chase_details(steps: int, newest: WorldObservationValue, *, item_id: str) -
     arrived at all: how many steps went out, and the newest reading they were
     concluded against. Without them a `NO_CONFIRMING_OBSERVATION` cannot be told
     apart from the channel going silent, and the two are answered by changing
-    different things.
+    different things. `jumps` is written only when hops went out, so a chase
+    that never met a blocked step keeps the shape it always had.
     """
 
     details = {"steps": str(steps), "newest_checked_tick": str(newest.game_tick)}
+    if jumps:
+        details["jumps"] = str(jumps)
     drops = seen_drops(newest.visible_entities, item_id)
     if drops:
         nearest = min(drops, key=_drop_approach_distance)
@@ -975,6 +991,7 @@ class WorldSkills:
         chase_reason = "NO_CONFIRMING_OBSERVATION"
         last_distance = _drop_approach_distance(first_drops[0])
         stalled = 0
+        jumps = 0
         if not await self._walk_toward(
             action_id, authority, first_drops[0], walk_seconds, deadline
         ):
@@ -1013,7 +1030,7 @@ class WorldSkills:
                     action_id=action_id,
                     pre_tick=pre.game_tick,
                     post_tick=post.game_tick,
-                    details=_chase_details(steps, post, item_id=item_id),
+                    details=_chase_details(steps, post, item_id=item_id, jumps=jumps),
                 )
             drops = seen_drops(post.visible_entities, item_id)
             if not drops:
@@ -1042,8 +1059,14 @@ class WorldSkills:
                 stalled = 0
             last_distance = distance
             steps += 1
+            # A step that just failed to close gets the walker's own answer to a
+            # one-block rise: the next step holds jump. The reading after it says
+            # whether the hop cleared the way, and the stall count above still
+            # ends the chase by name if it did not.
+            hop = stalled >= 1
+            jumps += 1 if hop else 0
             if not await self._walk_toward(
-                action_id, authority, drops[0], CHASE_STEP_SECONDS, deadline
+                action_id, authority, drops[0], CHASE_STEP_SECONDS, deadline, hop=hop
             ):
                 chase_reason = "COLLECT_AIM_NOT_CONFIRMED"
                 break
@@ -1052,7 +1075,7 @@ class WorldSkills:
             reason=chase_reason,
             action_id=action_id,
             pre_tick=pre.game_tick,
-            details=_chase_details(steps, chain, item_id=item_id),
+            details=_chase_details(steps, chain, item_id=item_id, jumps=jumps),
         )
 
     async def _walk_toward(
@@ -1062,8 +1085,16 @@ class WorldSkills:
         drop: EntityCandidate,
         walk_seconds: float,
         deadline: int,
+        *,
+        hop: bool = False,
     ) -> bool:
-        """Wait for the observed walking heading, then step and stop within the same budget."""
+        """Wait for the observed walking heading, then step and stop within the same budget.
+
+        `hop` holds the jump key for this one step — the caller's answer to a
+        previous step that closed nothing, which in this game is what clears a
+        one-block rise. The release lets it go with the forward key: a jump that
+        outlived its step would be its own kind of stuck.
+        """
 
         yaw, pitch = angle_to_degrees(dx=drop.relative_x, dy=drop.relative_y, dz=drop.relative_z)
         await self._sender.send_control(
@@ -1093,7 +1124,7 @@ class WorldSkills:
         )
         if arrived is None or deadline - monotonic_ns() < round(walk_seconds * 1_000_000_000):
             return False
-        await self._send_walk(action_id, authority, forward=1.0)
+        await self._send_walk(action_id, authority, forward=1.0, jump=hop)
         async with self._release_on_exit(
             lambda: self._send_walk(action_id, authority, forward=0.0)
         ):
@@ -1104,7 +1135,12 @@ class WorldSkills:
         return True
 
     async def _send_walk(
-        self, action_id: str, authority: ActionAuthority, *, forward: float
+        self,
+        action_id: str,
+        authority: ActionAuthority,
+        *,
+        forward: float,
+        jump: bool = False,
     ) -> None:
         await self._sender.send_control(
             MOVE_INPUT_TYPE,
@@ -1113,6 +1149,7 @@ class WorldSkills:
                 lease_id=authority.lease_id,
                 generation=authority.generation,
                 forward=forward,
+                jump=jump,
                 deadline_monotonic_ns=authority.deadline_monotonic_ns,
             ),
         )
@@ -2201,6 +2238,12 @@ class WorldSkills:
             )
         steps = 0
         current = pre
+        # A step that closes none of the gap gets the walker's answer to a wall:
+        # the next step holds jump, and the reading after it decides. `jumps` is
+        # the count of hops that actually went out, kept for the outcome.
+        blocked = 0
+        jumps = 0
+        last_distance = distance
         while steps < APPROACH_MAX_STEPS:
             if monotonic_ns() >= deadline:
                 break
@@ -2246,7 +2289,9 @@ class WorldSkills:
                 APPROACH_MAX_STEP_SECONDS,
                 max(APPROACH_STEP_SECONDS, remaining_s - APPROACH_WINDOW_RESERVE_SECONDS),
             )
-            await self._send_walk(action_id, authority, forward=1.0)
+            hop = blocked >= 1
+            jumps += 1 if hop else 0
+            await self._send_walk(action_id, authority, forward=1.0, jump=hop)
             async with self._release_on_exit(
                 lambda: self._send_walk(action_id, authority, forward=0.0)
             ):
@@ -2270,18 +2315,47 @@ class WorldSkills:
                 continue  # the next loop pass names it gone
             now_distance = math.hypot(listed_now.relative_x, listed_now.relative_z)
             if now_distance <= stop:
+                details = {
+                    "target": entity.entity_type,
+                    "distance_blocks": f"{now_distance:.2f}",
+                    "steps": str(steps),
+                    "newest_checked_tick": str(current.game_tick),
+                }
+                if jumps:
+                    details["jumps"] = str(jumps)
                 return SkillOutcome(
                     result=ActionResultClass.CONFIRMED,
                     reason="",
                     action_id=action_id,
                     pre_tick=pre.game_tick,
                     post_tick=current.game_tick,
-                    details={
-                        "target": entity.entity_type,
-                        "distance_blocks": f"{now_distance:.2f}",
-                        "steps": str(steps),
-                        "newest_checked_tick": str(current.game_tick),
-                    },
+                    details=details,
+                )
+            if last_distance - now_distance < WALK_HOP_STALL_BLOCKS:
+                # The step closed nothing: a wall (or a rise the hop failed to
+                # clear). The first one arms the next step's hop; this many in a
+                # row ends the approach by name rather than walking at a wall
+                # until the window runs out.
+                blocked += 1
+            else:
+                blocked = 0
+            last_distance = now_distance
+            if blocked >= APPROACH_MAX_BLOCKED_STEPS:
+                details = {
+                    "target": entity.entity_type,
+                    "distance_blocks": f"{now_distance:.2f}",
+                    "steps": str(steps),
+                    "newest_checked_tick": str(current.game_tick),
+                }
+                if jumps:
+                    details["jumps"] = str(jumps)
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason=APPROACH_PATH_BLOCKED,
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=current.game_tick,
+                    details=details,
                 )
         latest = self._observations.latest or current
         return SkillOutcome(
