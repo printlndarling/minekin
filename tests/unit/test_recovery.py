@@ -20,9 +20,7 @@ from minekin_core.domain.recovery import (
     CONNECT_WORLD,
     INPUT_LEASE,
     MAX_ATTEMPTS,
-    RELEASE_ALL,
     START_CLIENT,
-    STOP_SESSION,
     RecoveryAction,
     recover_plan,
     recovery_action,
@@ -36,8 +34,6 @@ REVIEWED_EFFECTS = (
     START_CLIENT,
     CONNECT_WORLD,
     INPUT_LEASE,
-    RELEASE_ALL,
-    STOP_SESSION,
 )
 
 
@@ -108,7 +104,31 @@ def test_only_the_idempotent_effects_are_replayable() -> None:
         effect_type for effect_type in REVIEWED_EFFECTS if recovery_action(effect_type).replayable
     }
 
-    assert replayable == {BUNDLE_FETCH, RELEASE_ALL, STOP_SESSION}
+    # One effect is left: the content-addressed fetch, where repeating it is the
+    # same request. A release or a stop is not in the reviewed set at all — see
+    # the cell below for why the names are refused rather than replayed.
+    assert replayable == {BUNDLE_FETCH}
+
+
+def test_a_release_and_a_stop_are_not_effects_this_recovery_replays() -> None:
+    """The retired two effects, refused by name.
+
+    The release promise is not its own row: it is the input lease's, which opens
+    before any key can be pressed and closes exactly when the release command has
+    gone out (`release_inputs` settles it), so a second "release everything" row
+    would be the same promise twice — replayed to nobody, because reconcile runs
+    before any channel exists. A stop's answer is owned by the pair that asked
+    for it (the request file and its receipt, with the stopper's own deadline
+    escalation); a next session was started by an operator, and replaying a stop
+    into it would stop a session nobody asked to stop. Both names therefore read
+    as ones this build does not know — loudly — and a future build that opens
+    either must teach this table together with what replaying it would mean.
+    """
+
+    for effect_type in ("RELEASE_ALL", "STOP_SESSION"):
+        decision = recovery_action(effect_type)
+        assert decision.action is RecoveryAction.FAIL_CLOSED
+        assert not decision.replayable
 
 
 def test_an_effect_that_keeps_failing_stops_being_retried() -> None:

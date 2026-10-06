@@ -98,7 +98,7 @@ def test_an_effect_that_waits_on_the_world_is_left_alone() -> None:
 
 
 def test_a_retryable_effect_stays_pending() -> None:
-    store = _Store(_item("RELEASE_ALL"))
+    store = _Store(_item("BUNDLE_FETCH"))
 
     report = _run(store)
 
@@ -115,7 +115,7 @@ def test_an_effect_this_build_cannot_read_stops_the_start() -> None:
     assert raised.value.category is ErrorCategory.INTERNAL_INVARIANT
 
 
-@pytest.mark.parametrize("effect_type", ["INPUT_LEASE", "RELEASE_ALL"])
+@pytest.mark.parametrize("effect_type", ["INPUT_LEASE", "BUNDLE_FETCH"])
 def test_a_refusal_leaves_the_ledger_exactly_as_it_was(effect_type: str) -> None:
     """Nothing is closed before every decision has been read."""
 
@@ -131,7 +131,7 @@ def test_a_refusal_leaves_the_ledger_exactly_as_it_was(effect_type: str) -> None
 
 
 def test_an_effect_past_the_retry_cap_stops_the_start() -> None:
-    store = _Store(_item("RELEASE_ALL", attempts=3))
+    store = _Store(_item("BUNDLE_FETCH", attempts=3))
 
     with pytest.raises(MinekinError, match="cannot be reconciled") as raised:
         _run(store)

@@ -10,9 +10,9 @@ because a bundle download that never happened can simply be done again.
 §8 of the internal architecture splits the effects by what is safe, and this is
 that split as a table rather than as prose. The distinction that matters most:
 an effect is retryable when repeating it is the *same* request (content-addressed
-downloads, idempotent releases), and it is not retryable when repeating it
-depends on state that has since changed — which is every effect whose correctness
-was tied to a connection generation or to a held lease.
+downloads), and it is not retryable when repeating it depends on state that has
+since changed — which is every effect whose correctness was tied to a connection
+generation or to a held lease.
 
 An effect this build does not recognise is refused rather than guessed at: the
 safe reading of "I do not know what this was going to do" is not "do it again".
@@ -34,8 +34,6 @@ BUNDLE_FETCH: Final[str] = "BUNDLE_FETCH"
 START_CLIENT: Final[str] = "START_CLIENT"
 CONNECT_WORLD: Final[str] = "CONNECT_WORLD"
 INPUT_LEASE: Final[str] = "INPUT_LEASE"
-RELEASE_ALL: Final[str] = "RELEASE_ALL"
-STOP_SESSION: Final[str] = "STOP_SESSION"
 
 
 class RecoveryAction(StrEnum):
@@ -67,9 +65,19 @@ _ACTIONS: Final[MappingProxyType[str, RecoveryAction]] = MappingProxyType(
         # Leases are deliberately not persisted, so this item can only be a
         # stale intent to press keys. Replaying it is the failure mode.
         INPUT_LEASE: RecoveryAction.INVALIDATE,
-        # Releasing is designed to be repeatable and doing it twice is harmless.
-        RELEASE_ALL: RecoveryAction.RETRY,
-        STOP_SESSION: RecoveryAction.RETRY,
+        # Two effects are deliberately NOT reviewed here, and their absence is the
+        # decision rather than an oversight: a release of all inputs and a stop of
+        # the session. The release promise is the INPUT_LEASE row's own — it opens
+        # before any key can be pressed and closes exactly when the release command
+        # has gone out (`release_inputs` settles it) — so a second "release
+        # everything" row would be the same promise twice, replayed to nobody
+        # (reconcile runs before any channel exists). A stop's answer is owned by
+        # the pair that asked for it: the request file and its receipt, with the
+        # stopper's own deadline escalation; a next session was started by an
+        # operator, and replaying a stop into it would stop a session nobody asked
+        # to stop. Both names therefore read as ones this build does not know —
+        # refused loudly — and a future build that opens either must teach this
+        # table together with what replaying it would mean.
     }
 )
 

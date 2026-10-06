@@ -1518,3 +1518,14 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **先红后绿**：域矩阵 8＋组合面 2＋假端点 2＋心携带 2＋判据 5＋读侧 7（含**真 `SessionEventLog` 写入→新读者读回**的整路：重启后承诺仍在，因为它是账本行而不是会话状态）＋gateway 1。调试按实登记：历史钉按其设计意图扩展（挂载点＋1）；pyright 严模下 `Mapping` 收窄致 27 错——依房规 `cast` 收窄后 0/0/0；gateway 覆盖测试抓红一次（新事件缺读法）——那正是它该做的。
 
 **按实/不声明**：单元面。**不声明活体**：真实模型在跑里真的附 `commit`、以及下一会话真的"记得但要重验"的读数——等活体线恢复后取。门（uv）：pyright 0/0/0、ruff 0、format 522、全仓 **4209 passed / 2 skipped**。
+
+## 六之五十八、RETRY 类定案：释放与停止不再是"可重放效力"（2026-10-07，单元面交付；设计定案）
+
+**缺口（具名待设计项收口）**：`domain/recovery.py` 的恢复表自早期起列着 `RELEASE_ALL`/`STOP_SESSION` 两个"RETRY 类"效力，而全仓**从来没有任何地方开过这两张单**（`open_effect` 只有 START_CLIENT/CONNECT_WORLD/INPUT_LEASE 三处）。六之四十六把候选语义"重放＝下一次 wind-down 的释放"标成待设计——它触碰"重启后 `waiting` 须空"的断言，而且照那个语义这两张单在整个会话期都无法结账（没有重放者）。本轮把这一格按设计定案收口。
+
+**定案（写在表所在的文件里，代码即记录）**：
+1. **释放不是自己的效力单**：释放的承诺就是 `INPUT_LEASE` 那张单自己的——它在任何键可能按下之前开单、**恰在释放命令发出后**由 `release_inputs` 结算（六之四十一的显式恢复与无条件 wind-down 释放是同一承诺的另一半）。再加一张"释放一切"只会让同一个承诺在同一本账上出现两次，且在 reconcile 时**没有任何通道可向其重放**（reconcile 先于一切启动）。故 `RELEASE_ALL` 退出表与词汇表。
+2. **停止的答复归提问者所有**：stop 的答复由请求文件＋回执这一对承载，升级由 stopper 自己的 deadline 完成；下一次会话是操作者选择启动的，把一张 stop 单重放进新会话就是**停一个没人要求停的会话**。故 `STOP_SESSION` 退出。
+3. **退役名按未知拒绝**：两张单将来若由新构建开启，必须连同"重放意味着什么"一起把 `recovery_action` 教给这张表；在那之前它们走"这个构建不知道这张单要做什么"的 `FAIL_CLOSED`——响亮拒绝，不猜。
+
+**先红后绿**：新钉 1（两退役名按名 `FAIL_CLOSED`，docstring 写定案理由）＋既有钉按其设计意图更新（`REVIEWED_EFFECTS` 6→4；`replayable == {BUNDLE_FETCH}`；service 侧三处 RETRY 例样换 `BUNDLE_FETCH`）。**联动续封按实登记**：HOST-050 的冻结断言摘要随测试演进重录（`tools/check_case_assertions.py --record`，仅 1 条摘要变动、diff 逐行核过）；`tests/fixtures/manifest.sha256` 的 host-050 行按门自报的新摘要更新（`tools/verify_fixture_digests.py` 报 `OK`）。门（uv）：pyright 0/0/0、ruff 0、format 522、全仓 **4208 passed / 2 skipped**。**不声明活体**：本卡是设计/单测面；释放与停止的活体读数早已按各自卡片取过，本卡不改变任何运行时行为（只是不再宣称两个从未开启的名字可重放）。
