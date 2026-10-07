@@ -1200,9 +1200,20 @@ def test_craft_take_result_confirms_from_the_quick_move_alone_when_the_product_a
     asyncio.run(scenario())
 
 
-def test_craft_take_result_deposits_a_product_the_reading_says_is_stuck_outside_the_inventory() -> (
-    None
-):
+@pytest.mark.parametrize(
+    "screen_id,sync_id,empty_slot,expected_slot",
+    [
+        ("PlayerScreen", 0, 0, 32),
+        ("", 0, 0, 32),
+        ("minecraft:crafting", 7, 0, 37),
+        ("", 0, 9, 5),
+        ("minecraft:crafting", 7, 9, 10),
+        ("minecraft:crafting", 7, 35, 36),
+    ],
+)
+def test_craft_take_result_deposits_a_product_the_reading_says_is_stuck_outside_the_inventory(
+    screen_id: str, sync_id: int, empty_slot: int, expected_slot: int
+) -> None:
     """The §5.10 shape: materials fell and no frame ever shows the product. That
     is the cursor, and the synced inventory cannot see it — so one left-click on
     a slot the newest reading says is empty puts it where the next reading can.
@@ -1211,22 +1222,24 @@ def test_craft_take_result_deposits_a_product_the_reading_says_is_stuck_outside_
     screen's numbering."""
 
     async def scenario() -> None:
-        store = _player_screen_store((0, LOG, 1))
+        gui = GuiScreenValue(screen_id=screen_id, sync_id=sync_id)
+        store = store_with(reading(tick=100, inventory_value=inventory(100, (0, LOG, 1)), gui=gui))
         skills, sender = skill_with(store)
+        occupied = tuple((slot, "minecraft:stone", 1) for slot in range(empty_slot))
         fill = reading(
             tick=110,
-            inventory_value=inventory(101),
-            gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+            inventory_value=inventory(101, *occupied),
+            gui=gui,
         )
         still_stuck = reading(
             tick=120,
-            inventory_value=inventory(102),
-            gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+            inventory_value=inventory(102, *occupied),
+            gui=gui,
         )
         deposited = reading(
             tick=130,
-            inventory_value=inventory(103, (0, PLANKS, 4)),
-            gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+            inventory_value=inventory(103, *occupied, (empty_slot, PLANKS, 4)),
+            gui=gui,
         )
         replies = iter((fill, still_stuck, deposited))
 
@@ -1248,10 +1261,120 @@ def test_craft_take_result_deposits_a_product_the_reading_says_is_stuck_outside_
         assert outcome.result is ActionResultClass.CONFIRMED
         clicks = _gui_clicks(sender)
         assert len(clicks) == 3
-        assert clicks[2].slot.slot_id == 32
+        assert clicks[2].slot.slot_id == expected_slot
         assert clicks[2].slot.mode == control_pb2.SLOT_CLICK_MODE_PICK
         assert clicks[2].slot.button == 0
-        assert outcome.details["deposit_slot"] == "32"
+        assert outcome.details["deposit_slot"] == str(expected_slot)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "next_gui",
+    [
+        None,
+        GuiScreenValue(screen_id="minecraft:crafting", sync_id=9),
+        GuiScreenValue(screen_id="minecraft:chest", sync_id=0),
+    ],
+)
+@pytest.mark.parametrize("product_seen", [False, True])
+def test_craft_result_does_not_deposit_into_a_replaced_handler(
+    next_gui: GuiScreenValue | None, product_seen: bool
+) -> None:
+    async def scenario() -> None:
+        store = _player_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+        replies = iter(
+            (
+                reading(
+                    tick=110,
+                    inventory_value=inventory(101),
+                    gui=GuiScreenValue(screen_id="PlayerScreen", sync_id=0),
+                ),
+                reading(
+                    tick=120,
+                    inventory_value=inventory(102, *((0, PLANKS, 4),) if product_seen else ()),
+                    gui=next_gui,
+                ),
+                reading(tick=130, inventory_value=inventory(103, (0, PLANKS, 4)), gui=next_gui),
+            )
+        )
+
+        def answer(message_type: str) -> None:
+            if message_type == GUI_CLICK_INPUT_TYPE:
+                assert store.admit(next(replies), ())
+
+        sender.on_send = answer
+        outcome = await skills.craft_take_result(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+            timeout_ns=150_000_000,
+        )
+        assert len(_gui_clicks(sender)) == 2
+        assert outcome.result is (
+            ActionResultClass.CONFIRMED if product_seen else ActionResultClass.UNKNOWN
+        )
+        assert outcome.reason == ("" if product_seen else "SCREEN_NOT_CONFIRMED")
+        assert outcome.post_tick == 120
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("screen_id", ["minecraft:furnace", "minecraft:chest", "mod:crafting"])
+def test_craft_take_result_refuses_an_unknown_handler_layout(screen_id: str) -> None:
+    async def scenario() -> None:
+        store = store_with(
+            reading(
+                tick=100,
+                inventory_value=inventory(100, (0, LOG, 1)),
+                gui=GuiScreenValue(screen_id=screen_id, sync_id=7),
+            )
+        )
+        skills, sender = skill_with(store)
+        outcome = await skills.craft_take_result(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+            timeout_ns=150_000_000,
+        )
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "CRAFT_SCREEN_UNSUPPORTED"
+        assert sender.sent == []
+
+    asyncio.run(scenario())
+
+
+def test_craft_result_slot_is_not_clicked_after_handler_type_changes_during_fill() -> None:
+    async def scenario() -> None:
+        store = _player_screen_store((0, LOG, 1))
+        skills, sender = skill_with(store)
+
+        def answer(message_type: str) -> None:
+            if message_type == GUI_CLICK_INPUT_TYPE:
+                assert len(_gui_clicks(sender)) == 1, "result slot belongs to the original handler"
+                assert store.admit(
+                    reading(
+                        tick=110,
+                        inventory_value=inventory(101),
+                        gui=GuiScreenValue(screen_id="minecraft:chest", sync_id=0),
+                    ),
+                    (),
+                )
+
+        sender.on_send = answer
+        outcome = await skills.craft_take_result(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+            timeout_ns=150_000_000,
+        )
+        assert outcome.result is ActionResultClass.UNKNOWN
+        assert outcome.reason == "SCREEN_NOT_CONFIRMED"
+        assert len(_gui_clicks(sender)) == 1
 
     asyncio.run(scenario())
 

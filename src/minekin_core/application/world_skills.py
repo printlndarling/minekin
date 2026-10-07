@@ -85,7 +85,6 @@ from minekin_core.domain.perception import (
     AimKind,
     BlockTargetValue,
     EntityCandidate,
-    InventoryValue,
     WorldObservationValue,
 )
 from minekin_core.domain.skill_parameters import MAX_SAY_CHARS
@@ -660,14 +659,22 @@ def _player_screen_slot(inventory_slot: int) -> int | None:
     return None
 
 
-def _first_empty_screen_slot(inventory: InventoryValue) -> int | None:
+def _first_empty_screen_slot(observation: WorldObservationValue) -> int | None:
     """The first of the thirty-six a reading says carries nothing, or `None`.
     The bridge lists only non-empty stacks, so absence is the report of empty."""
 
-    taken = {stack.slot for stack in inventory.stacks}
+    gui = observation.gui
+    if gui is None:
+        return None
+    taken = {stack.slot for stack in observation.inventory.stacks}
     for slot in range(36):
         if slot not in taken:
-            return _player_screen_slot(slot)
+            if gui.screen_id == "minecraft:crafting":
+                # Result 0, 3x3 grid 1..9, inventory 10..36, hotbar 37..45.
+                return slot + 37 if slot < 9 else slot + 1
+            if gui.sync_id == 0 and gui.screen_id in ("", "PlayerScreen"):
+                return _player_screen_slot(slot)
+            return None
     return None
 
 
@@ -1476,6 +1483,10 @@ class WorldSkills:
         refusal = gui_click_refusal(current, current.gui.sync_id)
         if refusal.refusal is not None:
             return _refusal_outcome(refusal.refusal.value, action_id, current)
+        if current.gui.screen_id != "minecraft:crafting" and not (
+            current.gui.sync_id == 0 and current.gui.screen_id in ("", "PlayerScreen")
+        ):
+            return _refusal_outcome("CRAFT_SCREEN_UNSUPPORTED", action_id, current)
         await self._sender.send_control(
             GUI_CLICK_INPUT_TYPE,
             control_pb2.GuiClickInput(
@@ -1489,6 +1500,7 @@ class WorldSkills:
         )
         clicks.append("recipe_fill")
         fill_sync_id = current.gui.sync_id
+        fill_screen_id = current.gui.screen_id
         # A new game tick can arrive before the server has populated the grid.
         # Inventory material leaving the same live handler is the visible fill
         # evidence available in this observation schema; an unchanged frame is
@@ -1499,6 +1511,7 @@ class WorldSkills:
                 and (
                     latest.gui is None
                     or latest.gui.sync_id != fill_sync_id
+                    or latest.gui.screen_id != fill_screen_id
                     or (
                         latest.inventory.revision > current.inventory.revision
                         and any(
@@ -1520,7 +1533,11 @@ class WorldSkills:
                 details=_take_result_details(pre, current, gui_open=True, clicks=clicks),
             )
         chain = filled
-        if chain.gui is None or chain.gui.sync_id != fill_sync_id:
+        if (
+            chain.gui is None
+            or chain.gui.sync_id != fill_sync_id
+            or chain.gui.screen_id != fill_screen_id
+        ):
             return SkillOutcome(
                 result=ActionResultClass.UNKNOWN,
                 reason="SCREEN_NOT_CONFIRMED",
@@ -1576,12 +1593,25 @@ class WorldSkills:
                         pre, post, gui_open=True, clicks=clicks, deposit_slot=deposit_slot
                     ),
                 )
+            if (
+                post.gui is None
+                or post.gui.sync_id != fill_sync_id
+                or post.gui.screen_id != fill_screen_id
+            ):
+                return SkillOutcome(
+                    result=ActionResultClass.UNKNOWN,
+                    reason="SCREEN_NOT_CONFIRMED",
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=post.game_tick,
+                    details=_take_result_details(pre, post, gui_open=False, clicks=clicks),
+                )
             gone = all(
                 item_total(post.inventory, item) < item_total(pre.inventory, item)
                 for item in materials
             )
             if gone and "cursor_deposit" not in clicks:
-                empty = _first_empty_screen_slot(post.inventory)
+                empty = _first_empty_screen_slot(post)
                 if empty is None:
                     return SkillOutcome(
                         result=ActionResultClass.UNKNOWN,
@@ -1589,14 +1619,6 @@ class WorldSkills:
                         action_id=action_id,
                         pre_tick=pre.game_tick,
                         details=_take_result_details(pre, post, gui_open=True, clicks=clicks),
-                    )
-                if post.gui is None or post.gui.sync_id is None:
-                    return SkillOutcome(
-                        result=ActionResultClass.UNKNOWN,
-                        reason="SCREEN_NOT_CONFIRMED",
-                        action_id=action_id,
-                        pre_tick=pre.game_tick,
-                        details=_take_result_details(pre, post, gui_open=False, clicks=clicks),
                     )
                 refusal = gui_click_refusal(post, post.gui.sync_id)
                 if refusal.refusal is not None:
