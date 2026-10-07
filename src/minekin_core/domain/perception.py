@@ -443,6 +443,21 @@ class ChatMessageValue:
 
 
 @dataclass(frozen=True, slots=True)
+class HurtSourceValue:
+    """Whom the client last showed as having hurt this body — as the client read it.
+
+    The attacker is filled only when the damage source resolved to a body the
+    client could itself name; `source_type` is the honest word for every damage
+    that was no entity (falling, fire, drowning). A named attacker is the
+    observation of who was near the hit — never a verdict about intent.
+    """
+
+    attacker_observation_id: str
+    attacker_type: str
+    source_type: str
+
+
+@dataclass(frozen=True, slots=True)
 class WorldObservationValue:
     """The recurring player-equivalent view, at the tick the Bridge names.
 
@@ -468,6 +483,10 @@ class WorldObservationValue:
     #: overflow between observations). Zero means nothing was left out; a
     #: positive count is reported as its own ledger row rather than implied.
     chat_omitted: int = 0
+    #: The client's own last-damage record, when it is new since the previous
+    #: reading. `None` means the record says nothing fresh — never "nobody hurt
+    #: the Kin".
+    hurt: HurtSourceValue | None = None
 
 
 def world_observation_violations(

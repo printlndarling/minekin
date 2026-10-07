@@ -313,6 +313,25 @@ message PlayerChatMessage {
   string sender_id = 4;
 }
 
+// The client's own last-damage record, read at this observation: whom the game
+// last showed this client as having been hurt by. Player-equivalent — the
+// client's damage-tilt machinery reads the same record — and never server
+// truth: the attacker is filled only when the damage source resolved to a body
+// the client itself could name, and a source that was no entity (falling,
+// fire, drowning, a stale wall) says so by its type name rather than being
+// guessed into a body. A named attacker is a candidate — the observation of
+// WHO was near the hit — and never a verdict about intent.
+message HurtSource {
+  // The attacking body in the same `observation_id` vocabulary `VisibleEntity`
+  // publishes, when the source resolved to one; empty otherwise.
+  string attacker_observation_id = 1;
+  string attacker_type = 2;
+  // What kind of damage it was, in the game's own DamageSource name
+  // (`fall`, `lava`, `player_attack`, ...): the honest word for every damage
+  // that was not an attackable body.
+  string source_type = 3;
+}
+
 // The recurring player-equivalent view: where the Kin is, what its crosshair is on,
 // what it carries, what it can see, and what is open.
 //
@@ -343,5 +362,9 @@ message WorldObservation {
   // How many heard chat lines this drain could not carry (ring overflow between
   // observations). Absent or zero means nothing was left out.
   optional uint32 chat_omitted = 10;
-  reserved 11 to 12;
+  // Whom the client last showed as having hurt this body, when that record is
+  // new since the previous observation. Absent means the client's own record
+  // says nothing fresh — never "nobody hurt the Kin".
+  optional HurtSource hurt = 11;
+  reserved 12;
 }

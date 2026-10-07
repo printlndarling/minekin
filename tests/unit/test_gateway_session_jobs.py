@@ -252,7 +252,13 @@ def test_the_saved_decision_policy_rides_into_the_managed_launch_environment(
     try:
         assert jobs.start(body())[0] == 202
         deadline = time.monotonic() + JOB_SETTLE_SECONDS
-        while jobs.read()["job"]["phase"] in session_jobs.ACTIVE and time.monotonic() < deadline:
+        while time.monotonic() < deadline:
+            record = jobs.read().get("job")
+            # A None record means the latest record is briefly absent or mid-replace
+            # (a loaded full-suite run widens that window): still settling, not a
+            # terminal phase, so keep polling; the deadline ends the wait.
+            if record is not None and record.get("phase") not in session_jobs.ACTIVE:
+                break
             time.sleep(0.01)
     finally:
         jobs.close()
@@ -290,7 +296,13 @@ def test_provider_off_alone_does_not_select_the_rules_in_the_managed_environment
     try:
         assert jobs.start(body())[0] == 202
         deadline = time.monotonic() + JOB_SETTLE_SECONDS
-        while jobs.read()["job"]["phase"] in session_jobs.ACTIVE and time.monotonic() < deadline:
+        while time.monotonic() < deadline:
+            record = jobs.read().get("job")
+            # A None record means the latest record is briefly absent or mid-replace
+            # (a loaded full-suite run widens that window): still settling, not a
+            # terminal phase, so keep polling; the deadline ends the wait.
+            if record is not None and record.get("phase") not in session_jobs.ACTIVE:
+                break
             time.sleep(0.01)
     finally:
         jobs.close()
@@ -323,7 +335,13 @@ def _run_job_to_end(
     try:
         assert jobs.start(body())[0] == 202
         deadline = time.monotonic() + JOB_SETTLE_SECONDS
-        while jobs.read()["job"]["phase"] in session_jobs.ACTIVE and time.monotonic() < deadline:
+        while time.monotonic() < deadline:
+            record = jobs.read().get("job")
+            # A None record means the latest record is briefly absent or mid-replace
+            # (a loaded full-suite run widens that window): still settling, not a
+            # terminal phase, so keep polling; the deadline ends the wait.
+            if record is not None and record.get("phase") not in session_jobs.ACTIVE:
+                break
             time.sleep(0.01)
     finally:
         jobs.close()

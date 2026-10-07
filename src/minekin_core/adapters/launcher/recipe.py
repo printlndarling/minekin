@@ -108,8 +108,12 @@ FABRIC_API_1201_SHA1 = "3e9cdd3e2f827ca9a259df9eb8e31949437b6bd4"
 # book keeps) and a named screen button can be clicked — the vanilla offer-select a
 # trade needs — so the model can judge a rendered trader the way it judges a slime
 # (card D-ENTITY-BEHAVIORS-001).
-BRIDGE_1201_JAR_SHA256 = "abd548983701cf43ac853ff26974470dedb657d55425682a57223f6fc1c854a9"
-BRIDGE_1201_JAR_SIZE = 1_492_215
+# A fifth 2026-10-05 renewal carries the client's own last-damage record: a
+# fresh hit reports who was shown as having hurt this body and what kind of
+# damage it was, so a Kin that was just struck can read the fact without the
+# Bridge guessing intent (card S3-SOCIAL-HURT-SOURCE-001).
+BRIDGE_1201_JAR_SHA256 = "5b9bdee5a4cb84fa18f6ab18910e487633f94ab1a3010d98c15d76d618455b34"
+BRIDGE_1201_JAR_SIZE = 1_499_059
 BRIDGE_1201_JAR_RELATIVE_PATH = "bridge-1201/build/libs/minekin-bridge-1201-0.0.0.jar"
 
 

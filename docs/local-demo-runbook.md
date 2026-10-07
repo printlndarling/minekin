@@ -1606,3 +1606,23 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **先红后绿**：新格用一个**已经为真**的 `stop_requested` 与 5s 窗口对表——修前该调用实耗 5.58s 才抛（红即该读数），修后在首轮即抛（断言 <1s 且仍发出过一次 `SayInput`）。修复：`check_interruption` 进入轮询循环**每一轮**，窗口内的停止即时生效；docstring 按实登记这次测量。顺手把 `_says_sent` 的注释按设计意图说准：它数的是**尝试**（被拒/无应答的线也花掉一次——上限的意义就是让发不出去的循环无法永远转），不是"说过的行"。
 
 **按实/不声明**：单元面；无活体声明。门（uv）：ruff 0、format 526、pyright 0/0/0、全仓 **4250 passed / 2 skipped**。
+
+## 六之六十五、受击来源观察：客户端自己的伤害记录上桥（2026-10-07，单元＋构建面交付）
+
+**缺口**：观察面早就报血量，却从来没有"是谁打的"——模型的 `last_health` 只说明挨了打，归因到实体（社交注意切片的入口）在两层都缺：线端没有这个字段，桥侧也没有读客户端已有的那本记录。纯 Core 之外必须动桥：这是本日唯一"Core＋桥"同卡。
+
+**设计前置（按设计自己的规则先核，再画卡）**：钉住的 yarn jar 上 `javap`／`javap -c` 把链路量全——`EntityDamageS2CPacket` → `ClientPlayNetworkHandler.onEntityDamage`（`createDamageSource` 解析出源）→ `Entity.onDamaged` → `LivingEntity` 存 `lastDamageSource`，公开读法 **`getRecentDamageSource()`**；`DamageSource.getAttacker()` 在实体源可解到时非空，非实体（坠落/火焰）只剩源类型名。**新鲜度当场定案**：每次伤害包都经 `createDamageSource` **新建** `DamageSource` 对象——引用身份即"新受击"的判据，不取 `lastAttackedTime`、不造签名。
+
+**交付（Core）**：
+1. **proto**：`HurtSource{attacker_observation_id, attacker_type, source_type}`＋`WorldObservation.hurt = 11`（`optional`；12 保留），buf 重生成，`test_observation_boundary` 形状钉同步（`HurtSource` 进 `OBSERVATION_MESSAGES`、`REVIEWED_HURT_FIELDS`）。
+2. **解码**：`WorldObservationValue.hurt`／`HurtSourceValue`；`decode_hurt` 逐字段超界归空、全空整条为 None——宁可没有记录，不造零值出手者。
+3. **账本**：`HURT_OBSERVED` 事件经 `_hurt_record`（读数逐字＋`game_tick`；`source=BRIDGE`、`trust=BRIDGE_FILTERED`）；gateway 覆盖门按名补 `TIMELINE_READING("observation","applied")`，detail 只取 `attacker_type`／`source_type`（`attacker_observation_id` 留台账，§4 纪律）。
+4. **心**：摘要 `last_hurt{attacker_type, attacker_observation_id, source_type}`＋提示词一句把语义钉死：**候选近旁者，不是意图证据，单凭这一读数绝不是敌人**。
+
+**交付（桥）**：`WorldObservationCollector.hurtSource(player)`——`getRecentDamageSource()` 取记录，引用身份判新（已报过的引用不重放）；`getAttacker()` 解到实体才填 `attacker_observation_id`（`getUuidAsString()`）与 `attacker_type`（`Registries.ENTITY_TYPE` 真实 id）；`source_type` 用 `getName()`，非实体伤害如实报名字，不猜出手者。`lastReportedDamage` 静态字段（类顶，注释指回方法）。
+
+**构建/续钉（走既有五件套流程）**：Loom `build` 绿（23s，`checkHostBoundaryArtifacts` OK）；新 jar `5b9bdee5…`／1,499,059B、source tree `679ba988…`；`recipe.py` 两常量＋第五发续期注释、`bundle-candidate-1.20.1.json` digest/size/source_digest、`fixtures/manifest.sha256` 行（`verify_fixture_digests` 自报）三处同续。
+
+**先红后绿**：decode 4 格（完整行、非实体只剩 source_type、超界归空、全空 None）；账本 2 格（新读数成行、无记录不欠行且非实体仍欠一行）；boundary 形状钉 1 格＋两表更新；心 1 格（`last_hurt` 进摘要）；gateway 1 格。全量套件顺带抓红并修掉一枚测试助手竞态：`test_gateway_session_jobs` 的等待环对"记录瞬时空"直接下标（`read()` 在记录短暂缺失/替换中如实回 `job: None`），载荷下复现 `TypeError`——环改为把 None 当"仍在落定"、由 deadline 收口（同文件三处同修）。
+
+**按实/不声明**：单元＋构建面。**不声明活体**：真实受击读数（含渲染不到出手者的隐身/远射场合按 `source_type` 如实）随活体线恢复后取；设计文档切片 B 已按本次测量标记"已交付（单元＋构建面）"并记录新鲜度定案。门（uv）：Loom `BUILD SUCCESSFUL`、ruff 0、format 369、pyright 0/0/0、`verify_fixture_digests` OK、受影响集 426 passed、全仓 **4259 passed / 2 skipped**。

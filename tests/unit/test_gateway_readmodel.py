@@ -57,6 +57,7 @@ from minekin_core.adapters.sqlite.session_log import (
     COMMITMENT_RECORDED,
     COMMITMENT_REJECTED,
     HELLO_ACCEPTED,
+    HURT_OBSERVED,
     INPUT_LEASE_GRANTED,
     INPUT_RELEASED,
     JOIN_OBSERVED,
@@ -701,6 +702,34 @@ def test_a_said_row_reads_as_speech_with_its_words_and_an_honest_outcome(tmp_pat
     assert said["kind"] == "input"
     assert said["outcome"] == "unknown"
     assert said["detail"] == "text=hello everyone"
+
+
+def test_a_hurt_row_reads_who_was_near_the_hit_without_the_internal_locator(
+    tmp_path: Path,
+) -> None:
+    """The panel sees the readable surface — the attacker's kind and the damage
+    kind — and not the entity locator, which stays in the ledger (§4's rule for
+    internal identifiers, the same one action_id follows)."""
+
+    seed_kin(tmp_path)
+    record(
+        tmp_path,
+        HURT_OBSERVED,
+        {
+            "attacker_observation_id": "f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2",
+            "attacker_type": "minecraft:player",
+            "source_type": "player_attack",
+            "game_tick": 120,
+        },
+    )
+
+    by_title = {event["title"]: event for event in build_timeline(tmp_path, limit=5)}
+
+    hurt = by_title[HURT_OBSERVED]
+    assert hurt["kind"] == "observation"
+    assert hurt["outcome"] == "applied"
+    assert hurt["detail"] == "attacker_type=minecraft:player, source_type=player_attack"
+    assert "f84c6a79" not in str(hurt)
 
 
 def test_the_projection_never_echoes_a_credential_held_by_a_ledger_row(tmp_path: Path) -> None:

@@ -297,8 +297,18 @@ class PlayerChatMessage(_message.Message):
     sender_id: str
     def __init__(self, game_tick: _Optional[int] = ..., sender: _Optional[str] = ..., text: _Optional[str] = ..., sender_id: _Optional[str] = ...) -> None: ...
 
+class HurtSource(_message.Message):
+    __slots__ = ("attacker_observation_id", "attacker_type", "source_type")
+    ATTACKER_OBSERVATION_ID_FIELD_NUMBER: _ClassVar[int]
+    ATTACKER_TYPE_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_TYPE_FIELD_NUMBER: _ClassVar[int]
+    attacker_observation_id: str
+    attacker_type: str
+    source_type: str
+    def __init__(self, attacker_observation_id: _Optional[str] = ..., attacker_type: _Optional[str] = ..., source_type: _Optional[str] = ...) -> None: ...
+
 class WorldObservation(_message.Message):
-    __slots__ = ("generation", "game_tick", "self", "aim", "inventory", "visible_entities", "mining", "gui", "chat", "chat_omitted")
+    __slots__ = ("generation", "game_tick", "self", "aim", "inventory", "visible_entities", "mining", "gui", "chat", "chat_omitted", "hurt")
     GENERATION_FIELD_NUMBER: _ClassVar[int]
     GAME_TICK_FIELD_NUMBER: _ClassVar[int]
     SELF_FIELD_NUMBER: _ClassVar[int]
@@ -309,6 +319,7 @@ class WorldObservation(_message.Message):
     GUI_FIELD_NUMBER: _ClassVar[int]
     CHAT_FIELD_NUMBER: _ClassVar[int]
     CHAT_OMITTED_FIELD_NUMBER: _ClassVar[int]
+    HURT_FIELD_NUMBER: _ClassVar[int]
     generation: int
     game_tick: int
     self: SelfState
@@ -319,4 +330,5 @@ class WorldObservation(_message.Message):
     gui: GuiScreen
     chat: _containers.RepeatedCompositeFieldContainer[PlayerChatMessage]
     chat_omitted: int
-    def __init__(self_, generation: _Optional[int] = ..., game_tick: _Optional[int] = ..., self: _Optional[_Union[SelfState, _Mapping]] = ..., aim: _Optional[_Union[AimTarget, _Mapping]] = ..., inventory: _Optional[_Union[InventorySummary, _Mapping]] = ..., visible_entities: _Optional[_Iterable[_Union[VisibleEntity, _Mapping]]] = ..., mining: _Optional[_Union[MiningProgress, _Mapping]] = ..., gui: _Optional[_Union[GuiScreen, _Mapping]] = ..., chat: _Optional[_Iterable[_Union[PlayerChatMessage, _Mapping]]] = ..., chat_omitted: _Optional[int] = ...) -> None: ...
+    hurt: HurtSource
+    def __init__(self_, generation: _Optional[int] = ..., game_tick: _Optional[int] = ..., self: _Optional[_Union[SelfState, _Mapping]] = ..., aim: _Optional[_Union[AimTarget, _Mapping]] = ..., inventory: _Optional[_Union[InventorySummary, _Mapping]] = ..., visible_entities: _Optional[_Iterable[_Union[VisibleEntity, _Mapping]]] = ..., mining: _Optional[_Union[MiningProgress, _Mapping]] = ..., gui: _Optional[_Union[GuiScreen, _Mapping]] = ..., chat: _Optional[_Iterable[_Union[PlayerChatMessage, _Mapping]]] = ..., chat_omitted: _Optional[int] = ..., hurt: _Optional[_Union[HurtSource, _Mapping]] = ...) -> None: ...

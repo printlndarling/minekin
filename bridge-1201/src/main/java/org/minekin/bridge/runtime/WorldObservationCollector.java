@@ -3,6 +3,7 @@ package org.minekin.bridge.runtime;
 import io.minekin.protocol.v1.AimTarget;
 import io.minekin.protocol.v1.BlockFace;
 import io.minekin.protocol.v1.BlockTarget;
+import io.minekin.protocol.v1.HurtSource;
 import io.minekin.protocol.v1.InventoryStack;
 import io.minekin.protocol.v1.InventorySummary;
 import io.minekin.protocol.v1.MiningProgress;
@@ -18,6 +19,7 @@ import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.ItemEntity;
+import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.Identifier;
@@ -48,6 +50,8 @@ public final class WorldObservationCollector {
     private static final Logger LOGGER = LoggerFactory.getLogger("minekin-bridge");
     /** The same reach {@code ClientSnapshot} uses; one number for what "visible" costs. */
     private static final double VISIBLE_RADIUS_BLOCKS = 64.0;
+    /** The damage record already reported, by identity — see {@link #hurtSource}. */
+    private static DamageSource lastReportedDamage;
 
     private WorldObservationCollector() {}
 
@@ -81,6 +85,7 @@ public final class WorldObservationCollector {
                                         TradeOfferReader.readable(client)));
         WorldActions.aimTarget(CrosshairReader.read(client), tick).ifPresent(view::setAim);
         mining(client, tick).ifPresent(view::setMining);
+        hurtSource(player).ifPresent(view::setHurt);
         // The chat the client heard since the previous observation: drained here,
         // oldest first, and reported with the overflow count when the ring had to
         // drop lines — an omission is stated, never implied (see `ChatInbox`).
@@ -97,6 +102,35 @@ public final class WorldObservationCollector {
             view.setChatOmitted(chat.omitted());
         }
         return view.build();
+    }
+
+    /**
+     * The client's own last-damage record, when a hit has arrived since the previous
+     * report: who was shown as having hurt this body and what kind of damage it was.
+     *
+     * <p>Freshness by object identity, measured from the pinned client: every received
+     * damage packet makes a fresh {@code DamageSource} through {@code createDamageSource},
+     * so reference inequality is exactly "a new hit arrived" — and a record already
+     * reported is never replayed as if the Kin were being hit right now. When several
+     * hits land between two observations the newest record is what this reads, which the
+     * observation's own tick stamps. The attacker is filled only when the source resolved
+     * to a body this client could name; falling, fire or drowning read as their source
+     * name instead of being guessed into somebody. That name is the whole intent verdict
+     * this reading carries: none.
+     */
+    private static java.util.Optional<HurtSource> hurtSource(ClientPlayerEntity player) {
+        DamageSource source = player.getRecentDamageSource();
+        if (source == null || source == lastReportedDamage) {
+            return java.util.Optional.empty();
+        }
+        lastReportedDamage = source;
+        HurtSource.Builder hurt = HurtSource.newBuilder().setSourceType(source.getName());
+        Entity attacker = source.getAttacker();
+        if (attacker != null) {
+            hurt.setAttackerObservationId(attacker.getUuidAsString())
+                    .setAttackerType(Registries.ENTITY_TYPE.getId(attacker.getType()).toString());
+        }
+        return java.util.Optional.of(hurt.build());
     }
 
     private static SelfState selfState(MinecraftClient client, ClientPlayerEntity player) {

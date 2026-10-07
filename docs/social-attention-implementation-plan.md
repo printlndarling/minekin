@@ -56,15 +56,23 @@
 
 见 §1；判据即各卡已登记的单元面验收与待取活体读数。
 
-### 切片 B（下一张桥卡，等活体窗口）：受击来源观察
+### 切片 B（2026-10-07 已交付，单元＋构建面；活体读数待窗口）：受击来源观察
 
 - 形状与判据见 §2.3。**桥侧现状已按设计自己的规则先核过**（2026-10-07，钉住的
-  yarn jar 上 `javap`）：`LivingEntity` 在客户端侧暴露 `getAttacker()`（返回
-  `LivingEntity`）与 `getDamageTiltYaw()`/`getLastAttackedTime()`（受击方向与时刻，
-  1.19.4 起的伤害倾斜渲染用）——出手者在受击帧**是可读的**，画卡时只需再定"客户端在
-  哪些伤害路径上真的填了 attacker"并按名收敛取不到的场合，不必硬凑。
-- 消费方（真实存在）：心在后续决策里的伤害归因输入；记忆切片 C 的"受击/损失"触发画像
-  （契约触发表第四行）。
+  yarn jar 上 `javap`／`javap -c`，链路已完整量出）：客户端收到 `EntityDamageS2CPacket`
+  → `ClientPlayNetworkHandler.onEntityDamage`（`createDamageSource` 解析出源）→
+  `Entity.onDamaged` → `LivingEntity` 存 `lastDamageSource`，公开读法
+  **`getRecentDamageSource()`**；`DamageSource.getAttacker()` 解析出出手的
+  `LivingEntity`（实体源可解到时才非空）；非实体伤害（坠落/火焰）则只有源类型名——
+  **取不到时说什么**由此有词：`source_type` 如实说"不是实体"，不是空白。
+- **"新鲜度"已定案（画卡时按 `javap -c` 再量过）**：每次收到伤害包，
+  `onEntityDamage` 都经 `createDamageSource` **新建一个 `DamageSource` 对象**——
+  因此以对象**引用身份**判新（与上次已报的引用不等即新受击），不取
+  `lastAttackedTime` 也不必造签名；两次观察之间多次受击时报最新一条，以其自身 tick 落章。
+- 消费方（真实存在）：心在后续决策里的伤害归因输入（`last_hurt` 摘要与
+  `HurtObserved` 账本行）；记忆切片 C 的"受击/损失"触发画像（契约触发表第四行）。
+- **活体待取**：真实受击场景下读一次 `source_type`／出手者（含"渲染不到出手者"的
+  隐身/远射场合按 `source_type` 如实），随活体线恢复后取；不在无活体时声明。
 
 ### 切片 C（与 offer 预算卡合并）：注意的显式省略
 

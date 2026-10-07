@@ -110,6 +110,12 @@ PLAYER_CHAT_OMITTED = "PlayerChatOmitted"
 #: for an accepted send, never for a refused one (a refusal is a step row's
 #: business, and it means the world never heard anything).
 KIN_SAID = "KinSaid"
+#: One fresh entry from the client's own last-damage record: who the game showed
+#: as having hurt the Kin, or the honest damage kind when it was no entity at
+#: all. The observation of WHO was near the hit — never a verdict about intent;
+#: the row carries the reading and its tick, and every intent question is a
+#: later judgement over it.
+HURT_OBSERVED = "HurtObserved"
 
 SESSION_EVENT_TYPES = frozenset(
     {
@@ -135,6 +141,7 @@ SESSION_EVENT_TYPES = frozenset(
         PLAYER_CHAT_OBSERVED,
         PLAYER_CHAT_OMITTED,
         KIN_SAID,
+        HURT_OBSERVED,
     }
 )
 

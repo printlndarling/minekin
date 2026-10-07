@@ -501,3 +501,53 @@ def test_an_over_long_account_key_is_dropped_to_empty_while_the_line_stands() ->
     assert len(reading.chat) == 1
     assert reading.chat[0].sender_id == ""
     assert reading.chat[0].text == "hello"
+
+
+def test_a_hurt_reading_decodes_the_attacker_the_client_could_name() -> None:
+    reading = decode_world_observation(
+        wire_observation(
+            hurt=observation_pb2.HurtSource(
+                attacker_observation_id="f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2",
+                attacker_type="minecraft:player",
+                source_type="player_attack",
+            )
+        )
+    )
+
+    assert reading.hurt is not None
+    assert reading.hurt.attacker_type == "minecraft:player"
+    assert reading.hurt.source_type == "player_attack"
+    assert reading.hurt.attacker_observation_id == "f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2"
+
+
+def test_hurt_that_was_no_entity_says_so_instead_of_guessing_a_body() -> None:
+    reading = decode_world_observation(
+        wire_observation(hurt=observation_pb2.HurtSource(source_type="fall"))
+    )
+
+    assert reading.hurt is not None
+    assert reading.hurt.attacker_observation_id == ""
+    assert reading.hurt.attacker_type == ""
+    assert reading.hurt.source_type == "fall"
+
+
+def test_an_empty_or_absent_hurt_record_reads_as_no_record() -> None:
+    """An empty record is "the client said nothing fresh", not a zeroed attacker."""
+
+    absent = decode_world_observation(wire_observation())
+    assert absent.hurt is None
+
+    empty = decode_world_observation(wire_observation(hurt=observation_pb2.HurtSource()))
+    assert empty.hurt is None
+
+
+def test_an_over_long_hurt_field_falls_back_while_the_record_stands() -> None:
+    reading = decode_world_observation(
+        wire_observation(
+            hurt=observation_pb2.HurtSource(attacker_type="minecraft:player", source_type="x" * 100)
+        )
+    )
+
+    assert reading.hurt is not None
+    assert reading.hurt.attacker_type == "minecraft:player"
+    assert reading.hurt.source_type == ""

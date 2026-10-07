@@ -101,6 +101,7 @@ from minekin_core.adapters.sqlite.session_log import (
     COMMITMENT_RECORDED,
     COMMITMENT_REJECTED,
     HELLO_ACCEPTED,
+    HURT_OBSERVED,
     INPUT_LEASE_GRANTED,
     INPUT_REFUSED,
     INPUT_RELEASED,
@@ -1204,6 +1205,27 @@ def _said_record(intent: MindIntent, outcome: SkillOutcome) -> dict[str, object]
     return {"text": spoken, "action_id": outcome.action_id}
 
 
+def _hurt_record(reading: WorldObservationValue) -> dict[str, object] | None:
+    """The HurtObserved row one reading owes, or None when the record is not fresh.
+
+    A pure function of the reading, so the payload is pinned by unit cells: the
+    attacker as the client named it (empty when the source was no entity), the
+    damage kind either way, and the tick the reading was taken at — the
+    observation of who was near the hit, with every intent question left to the
+    judgement that reads this row later.
+    """
+
+    hurt = reading.hurt
+    if hurt is None:
+        return None
+    return {
+        "attacker_observation_id": hurt.attacker_observation_id,
+        "attacker_type": hurt.attacker_type,
+        "source_type": hurt.source_type,
+        "game_tick": reading.game_tick,
+    }
+
+
 def mind_for_run(
     kin_id: str,
     environ: Mapping[str, str] | None = None,
@@ -1915,6 +1937,18 @@ async def start_and_supervise(
             "" if prepared.recorded is None else prepared.recorded.uuid_argv,
         ):
             await record(event_type, chat_payload, source=chat_source, trust_class=chat_trust)
+        hurt_record = _hurt_record(reading)
+        if hurt_record is not None:
+            # The client's own last-damage record, one row per fresh entry: who
+            # the game showed as having hurt this body (or the honest damage
+            # kind when it was no entity), with the intent question left to the
+            # judgement that reads the row — never a verdict recorded here.
+            await record(
+                HURT_OBSERVED,
+                hurt_record,
+                source=EventSource.BRIDGE,
+                trust_class=TrustClass.BRIDGE_FILTERED,
+            )
 
     skill_outcome: list[SkillSequence | None] = [None]
     skill_stop: list[str] = [""]

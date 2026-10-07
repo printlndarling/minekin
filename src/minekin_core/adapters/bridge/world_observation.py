@@ -30,6 +30,7 @@ from minekin_core.domain.perception import (
     ChatMessageValue,
     EntityCandidate,
     GuiScreenValue,
+    HurtSourceValue,
     InventoryStackValue,
     InventoryValue,
     MiningProgressValue,
@@ -43,6 +44,36 @@ from minekin_core.generated.minekin.v1 import control_pb2, observation_pb2
 #: bound; a longer field is dropped to the empty string rather than read (the key
 #: is an enhancement — the line's name stands regardless).
 MAX_CHAT_REF_CHARS: Final = 64
+
+
+def decode_hurt(message: observation_pb2.HurtSource) -> HurtSourceValue | None:
+    """The client's own last-damage record, bounded; an empty one is no record.
+
+    Each field is a name the client reported, held to the same reference bound
+    the chat keys use; a field past its bound is dropped to the empty string and
+    the rest of the record stands (a reading is degraded, not invented). A
+    record whose every field is empty reads as `None` — "the client said
+    nothing" and "the client said nothing fresh" are one shape here, and both
+    are the absent field downstream.
+    """
+
+    attacker_id = message.attacker_observation_id
+    attacker_type = message.attacker_type
+    source_type = message.source_type
+    if len(attacker_id) > MAX_CHAT_REF_CHARS:
+        attacker_id = ""
+    if len(attacker_type) > MAX_CHAT_REF_CHARS:
+        attacker_type = ""
+    if len(source_type) > MAX_CHAT_REF_CHARS:
+        source_type = ""
+    if not attacker_id and not attacker_type and not source_type:
+        return None
+    return HurtSourceValue(
+        attacker_observation_id=attacker_id,
+        attacker_type=attacker_type,
+        source_type=source_type,
+    )
+
 
 _AIM_KINDS: dict[int, AimKind] = {
     observation_pb2.AIM_TARGET_KIND_UNSPECIFIED: AimKind.UNREAD,
@@ -232,4 +263,5 @@ def decode_world_observation(
         gui=decode_gui(message.gui) if message.HasField("gui") else None,
         chat=decode_chat(message.chat),
         chat_omitted=(int(message.chat_omitted) if message.HasField("chat_omitted") else 0),
+        hurt=decode_hurt(message.hurt) if message.HasField("hurt") else None,
     )

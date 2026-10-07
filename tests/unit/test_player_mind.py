@@ -79,6 +79,7 @@ from minekin_core.domain.perception import (
     ChatMessageValue,
     EntityCandidate,
     GuiScreenValue,
+    HurtSourceValue,
     InventoryStackValue,
     InventoryValue,
     SelfStateValue,
@@ -734,6 +735,28 @@ def test_the_summary_carries_recent_chat_attributed_and_stays_silent_when_quiet(
 
     quiet = observation_summary(GOAL, reading(aim=block_aim()))
     assert "recent_chat" not in quiet
+
+
+def test_the_summary_carries_the_last_hurt_record_and_stays_silent_without_one() -> None:
+    """Whom the client's damage record showed near the hit rides the summary as a
+    reading — a candidate with its kind, never a verdict — and a body whose record
+    says nothing fresh carries no key rather than a zeroed attacker."""
+
+    hurt = HurtSourceValue(
+        attacker_observation_id="uuid-1",
+        attacker_type="minecraft:player",
+        source_type="player_attack",
+    )
+    struck = replace(reading(aim=block_aim()), hurt=hurt)
+    summary = observation_summary(GOAL, struck)
+    assert summary["last_hurt"] == {
+        "attacker_type": "minecraft:player",
+        "attacker_observation_id": "uuid-1",
+        "source_type": "player_attack",
+    }
+
+    quiet = observation_summary(GOAL, reading(aim=block_aim()))
+    assert "last_hurt" not in quiet
 
 
 def test_a_speaking_accounts_history_rides_the_next_request_by_its_key() -> None:

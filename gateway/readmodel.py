@@ -39,6 +39,7 @@ from minekin_core.adapters.sqlite.session_log import (
     COMMITMENT_RECORDED,
     COMMITMENT_REJECTED,
     HELLO_ACCEPTED,
+    HURT_OBSERVED,
     INPUT_LEASE_GRANTED,
     INPUT_REFUSED,
     INPUT_RELEASED,
@@ -163,6 +164,10 @@ _CHAT_DETAIL_FIELDS: Final = ("sender", "text")
 _CHAT_OMITTED_DETAIL_FIELDS: Final = ("omitted",)
 # The Kin's own spoken line: the words, which are the whole row.
 _SAID_DETAIL_FIELDS: Final = ("text",)
+# The hurt row, minus the attacker's internal locator: §4 keeps identifiers the
+# panel has no business drawing out of the detail, and the type plus the damage
+# kind are the whole readable surface.
+_HURT_DETAIL_FIELDS: Final = ("attacker_type", "source_type")
 
 # The skill-step row is what a running autonomous/skill session leaves in the ledger: one
 # concluded step with the verdict of the *later world readings*, never the Bridge's own
@@ -457,6 +462,8 @@ def _detail(row: EventRow) -> str | None:
         return _named_detail(row.payload, _CHAT_OMITTED_DETAIL_FIELDS)
     if row.event_type == KIN_SAID:
         return _named_detail(row.payload, _SAID_DETAIL_FIELDS)
+    if row.event_type == HURT_OBSERVED:
+        return _named_detail(row.payload, _HURT_DETAIL_FIELDS)
     parts = [
         f"{name}={row.payload[name]}"
         for name in _DETAIL_FIELDS
@@ -1129,6 +1136,10 @@ TIMELINE_READING: Final[Mapping[str, tuple[str, str]]] = {
     # not on the panel", which is exactly what the row exists to say.
     PLAYER_CHAT_OBSERVED: ("observation", "applied"),
     PLAYER_CHAT_OMITTED: ("observation", "unknown"),
+    # A fresh hurt reading: Core recorded what the client's damage record showed
+    # (who was near the hit, or the honest damage kind). The intent question is
+    # not this row's to answer, so the reading is applied and nothing more.
+    HURT_OBSERVED: ("observation", "applied"),
     # A line the Kin said. `applied` would overclaim: the client accepted the send,
     # and whether anyone heard it is exactly what no reading can tell — so the
     # outcome is the one word that admits it, and the words are in the detail.

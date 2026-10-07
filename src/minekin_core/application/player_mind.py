@@ -1034,6 +1034,17 @@ def observation_summary(
             }
             for message in reading.chat
         ]
+    if reading.hurt is not None:
+        # Whom the client's own damage record last showed as having hurt this
+        # body, at this tick — the observation of who was near the hit. A named
+        # attacker is a candidate and never a verdict: whether it was deliberate
+        # is not something this reading knows (the contract's 回敬不等于认定仇敌),
+        # and a body that once hit does not become an enemy here.
+        summary["last_hurt"] = {
+            "attacker_type": reading.hurt.attacker_type,
+            "attacker_observation_id": reading.hurt.attacker_observation_id,
+            "source_type": reading.hurt.source_type,
+        }
     if milestone is not None:
         summary["goal"] = {
             "product_id": milestone.product_id,

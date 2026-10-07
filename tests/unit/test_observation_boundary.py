@@ -33,6 +33,9 @@ OBSERVATION_MESSAGES = (
     # with the sender the client attributes it to — same side of the boundary as
     # the rest of this surface, under the same guard.
     observation_pb2.PlayerChatMessage,
+    # The client's own damage record: what its damage-tilt machinery already reads
+    # — who was shown as having hurt this body, or the honest damage kind.
+    observation_pb2.HurtSource,
 )
 
 # Concepts a player cannot read off the screen. A field whose name mentions one
@@ -92,6 +95,16 @@ REVIEWED_WORLD_OBSERVATION_FIELDS = {
     # the surface's way of stating an omission instead of implying one.
     "chat",
     "chat_omitted",
+    # Reviewed for the hurt reading: the client's own last-damage record, present
+    # only when fresh. It is a reading the client's own tilt machinery uses, not a
+    # server truth, and the attacker inside it is a candidate — never a verdict.
+    "hurt",
+}
+
+REVIEWED_HURT_FIELDS = {
+    "attacker_observation_id",
+    "attacker_type",
+    "source_type",
 }
 
 REVIEWED_CHAT_FIELDS = {
@@ -135,6 +148,12 @@ def test_a_chat_line_has_exactly_the_reviewed_fields() -> None:
     descriptor = observation_pb2.PlayerChatMessage.DESCRIPTOR
 
     assert {field.name for field in descriptor.fields} == REVIEWED_CHAT_FIELDS
+
+
+def test_a_hurt_reading_has_exactly_the_reviewed_fields() -> None:
+    descriptor = observation_pb2.HurtSource.DESCRIPTOR
+
+    assert {field.name for field in descriptor.fields} == REVIEWED_HURT_FIELDS
 
 
 def test_no_observation_field_names_a_concept_a_player_cannot_see() -> None:
