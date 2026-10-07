@@ -1157,6 +1157,40 @@ def test_craft_take_result_refuses_before_the_wire_when_materials_are_short() ->
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("take_result", [False, True])
+def test_craft_rechecks_materials_after_opening_inventory(take_result: bool) -> None:
+    async def scenario() -> None:
+        store = store_with(reading(tick=100, inventory_value=inventory(100, (0, LOG, 1))))
+        skills, sender = skill_with(store)
+
+        def answer(message_type: str) -> None:
+            assert message_type == SCREEN_INPUT_TYPE, "the latest bag cannot pay for recipe fill"
+            assert store.admit(
+                reading(
+                    tick=110,
+                    inventory_value=inventory(101),
+                    gui=GuiScreenValue(screen_id="", sync_id=0),
+                ),
+                (),
+            )
+
+        sender.on_send = answer
+        craft = skills.craft_take_result if take_result else skills.craft
+        outcome = await craft(
+            recipe_id="oak_planks",
+            materials={LOG: 1},
+            product_id=PLANKS,
+            authority=authority(),
+            timeout_ns=150_000_000,
+        )
+        assert outcome.result is ActionResultClass.FAILED
+        assert outcome.reason == "CRAFT_MATERIALS_MISSING"
+        assert _gui_clicks(sender) == []
+        assert outcome.pre_tick == 110
+
+    asyncio.run(scenario())
+
+
 def test_craft_take_result_confirms_from_the_quick_move_alone_when_the_product_arrives() -> None:
     """The transaction that the plain recipe click never finished: fill through
     the recipe book, then shift-click result slot 0. When the shift-click puts

@@ -1363,6 +1363,8 @@ class WorldSkills:
         refusal = gui_click_refusal(screen, screen.gui.sync_id)
         if refusal.refusal is not None:
             return _refusal_outcome(refusal.refusal.value, action_id, screen)
+        if any(item_total(screen.inventory, item) < want for item, want in materials.items()):
+            return _refusal_outcome("CRAFT_MATERIALS_MISSING", action_id, screen)
         await self._sender.send_control(
             GUI_CLICK_INPUT_TYPE,
             control_pb2.GuiClickInput(
@@ -1487,6 +1489,8 @@ class WorldSkills:
             current.gui.sync_id == 0 and current.gui.screen_id in ("", "PlayerScreen")
         ):
             return _refusal_outcome("CRAFT_SCREEN_UNSUPPORTED", action_id, current)
+        if any(item_total(current.inventory, item) < want for item, want in materials.items()):
+            return _refusal_outcome("CRAFT_MATERIALS_MISSING", action_id, current)
         await self._sender.send_control(
             GUI_CLICK_INPUT_TYPE,
             control_pb2.GuiClickInput(
