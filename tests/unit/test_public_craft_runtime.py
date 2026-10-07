@@ -30,6 +30,7 @@ from minekin_core.domain.perception import (
     WorldObservationValue,
 )
 from minekin_core.domain.recipe_catalog import BuildStep, RecipeProvenance
+from minekin_core.domain.world_actions import ActionResultClass, SkillOutcome
 
 
 def archive(tmp_path: Path) -> Path:
@@ -171,6 +172,34 @@ def test_model_parameters_select_different_imported_products_on_same_skill(
     assert mind.as_document()["last_result"] == ""
     assert mind.goal_met is False
     assert mind.public_crafts(current)[target].provenance is RecipeProvenance.PUBLIC_VERSION
+
+
+def test_public_recipe_unknown_result_blocks_the_same_offer_and_direct_call(tmp_path: Path) -> None:
+    target = "minecraft:stone_pickaxe"
+    mind = mind_for(
+        Provider(target), CostLedger(run_cost_cap=1000), craft_knowledge=source(tmp_path)
+    )
+    current = reading(
+        {"minecraft:cobblestone": 3, "minecraft:stick": 2, "minecraft:oak_log": 1},
+        gui=GuiScreenValue("minecraft:crafting", 7, frozenset({target, "minecraft:oak_planks"})),
+    )
+    first = mind.next_intent(current)
+    assert first.skill == "craft_take_result"
+    mind.record_result(
+        first,
+        SkillOutcome(
+            result=ActionResultClass.UNKNOWN,
+            reason="NO_CONFIRMING_OBSERVATION",
+            action_id="sent",
+            details={"clicks": "recipe_fill+result_quick_move"},
+        ),
+        current,
+    )
+    assert target not in mind.public_crafts(current)
+    assert "minecraft:oak_planks" in mind.public_crafts(current)
+    again = mind.next_intent(current)
+    assert again.plan.calls == ()
+    assert again.reason == "CRAFT_RESULT_UNRESOLVED"
 
 
 def test_live_gui_absence_cannot_be_overridden_by_public_or_old_curated_recipe(

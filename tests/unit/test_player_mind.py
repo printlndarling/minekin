@@ -2032,6 +2032,122 @@ def test_a_skill_that_keeps_failing_the_same_way_stops_being_asked() -> None:
     assert mind.as_document()["excluded_skills"] == ["break_seen_block"]
 
 
+@pytest.mark.parametrize("change", ["materials", "handler"])
+def test_an_unconfirmed_recipe_is_not_replayed_on_the_same_bag_and_handler(change: str) -> None:
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="craft",
+            intent_generation=1,
+            arguments={"target_item": PLANKS, "quantity": 4},
+        ),
+        Decision(skill_id="close_screen", reason="recover", intent_generation=2),
+        Decision(
+            skill_id="craft_take_result",
+            reason="new materials",
+            intent_generation=3,
+            arguments={"target_item": PLANKS, "quantity": 4},
+        ),
+        goal=Milestone(product_id=PLANKS, source_item_id=LOG),
+        policy=DecisionPolicy.MODEL,
+    )
+    subject = reading(items=((0, LOG, 2),), gui=GuiScreenValue(screen_id="", sync_id=0))
+    first = mind.next_intent(subject)
+    assert first.skill == "craft_take_result"
+    mind.record_result(
+        first,
+        SkillOutcome(
+            result=ActionResultClass.UNKNOWN,
+            reason="NO_CONFIRMING_OBSERVATION",
+            action_id="sent-craft",
+            details={"clicks": "recipe_fill"},
+        ),
+        subject,
+    )
+    later = replace(subject, game_tick=120)
+    assert PLANKS not in mind.craft_options_for(later)
+    assert "craft_take_result" not in mind.feasible_skills(later)
+    after = mind.next_intent(later)
+    assert after.skill != "craft_take_result"
+    changed = reading(
+        tick=140,
+        items=((0, LOG, 3 if change == "materials" else 2),),
+        gui=subject.gui
+        if change == "materials"
+        else GuiScreenValue(screen_id="minecraft:crafting", sync_id=7),
+    )
+    assert PLANKS in mind.craft_options_for(changed)
+    assert mind.next_intent(changed).skill == "craft_take_result"
+
+
+@pytest.mark.parametrize(
+    "result,clicks",
+    [
+        (ActionResultClass.UNKNOWN, ""),
+        (ActionResultClass.FAILED, "recipe_fill"),
+    ],
+)
+def test_a_refused_or_unsent_craft_does_not_create_an_unresolved_transaction(
+    result: ActionResultClass, clicks: str
+) -> None:
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="craft",
+            intent_generation=1,
+            arguments={"target_item": PLANKS, "quantity": 4},
+        ),
+        goal=None,
+        policy=DecisionPolicy.MODEL,
+    )
+    subject = reading(items=((0, LOG, 2),), gui=GuiScreenValue(screen_id="", sync_id=0))
+    first = mind.next_intent(subject)
+    assert first.skill == "craft_take_result"
+    mind.record_result(
+        first,
+        SkillOutcome(
+            result=result,
+            reason="SCREEN_NOT_CONFIRMED",
+            action_id="craft",
+            details={"clicks": clicks},
+        ),
+        subject,
+    )
+    assert PLANKS in mind.craft_options_for(subject)
+    assert mind.uncertain_crafts == {}
+
+
+def test_an_unresolved_recipe_does_not_remove_a_different_payable_recipe() -> None:
+    mind, _ = mind_with(
+        Decision(
+            skill_id="craft_take_result",
+            reason="craft",
+            intent_generation=1,
+            arguments={"target_item": PLANKS, "quantity": 8},
+        ),
+        goal=None,
+        policy=DecisionPolicy.MODEL,
+    )
+    subject = reading(
+        items=((0, LOG, 2), (1, PLANKS, 4)), gui=GuiScreenValue(screen_id="", sync_id=0)
+    )
+    first = mind.next_intent(subject)
+    assert first.skill == "craft_take_result"
+    mind.record_result(
+        first,
+        SkillOutcome(
+            result=ActionResultClass.UNKNOWN,
+            reason="NO_CONFIRMING_OBSERVATION",
+            action_id="sent-craft",
+            details={"clicks": "recipe_fill+result_quick_move"},
+        ),
+        subject,
+    )
+    assert PLANKS not in mind.craft_options_for(subject)
+    assert STICK in mind.craft_options_for(subject)
+    assert "craft_take_result" in mind.feasible_skills(subject)
+
+
 def test_an_emptied_offer_blocks_instead_of_replaying() -> None:
     mind, _ = mind_with()
     subject = reading(aim=block_aim())

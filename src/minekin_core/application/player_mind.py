@@ -1135,6 +1135,15 @@ def _inventory_contents(reading: WorldObservationValue) -> tuple[tuple[str, int]
     return tuple(sorted(counts.items()))
 
 
+def _craft_state(reading: WorldObservationValue) -> tuple[object, ...]:
+    gui = reading.gui
+    return (
+        reading.generation,
+        _inventory_contents(reading),
+        None if gui is None else (gui.screen_id, gui.sync_id),
+    )
+
+
 def _visible_item_entities(reading: WorldObservationValue) -> tuple[EntityCandidate, ...]:
     """The rendered entities the client reports as dropped items, item fields and all."""
 
@@ -1315,6 +1324,11 @@ class PlayerMind:
     #: ask against this exact target is the doomed second click §4 forbids, so the mind
     #: withholds the use key until the aim reads differently — the turn, not a gamble.
     last_use_aim: tuple[object, ...] | None = field(default=None, init=False)
+    #: Sent recipe fills with no verdict. Tick, pose and unrelated successful
+    #: actions do not settle them; changed materials or handler mean a new ask.
+    uncertain_crafts: dict[str, tuple[object, ...]] = field(
+        default_factory=dict[str, tuple[object, ...]], init=False
+    )
     #: The absolute coordinates of the block the last `break_seen_block` was aimed at, kept so a
     #: later `collect` that walked the player off the trunk can turn back to face it. A real
     #: player remembers which tree they were felling; re-aiming at a block already seen is the
@@ -1378,7 +1392,13 @@ class PlayerMind:
     def public_crafts(self, reading: WorldObservationValue) -> Mapping[str, Recipe]:
         if self.craft_knowledge is None:
             return {}
-        return self.craft_knowledge.available(reading, grid_side=crafting_grid_side(reading))
+        return {
+            product: recipe
+            for product, recipe in self.craft_knowledge.available(
+                reading, grid_side=crafting_grid_side(reading)
+            ).items()
+            if self.uncertain_crafts.get(recipe.recipe_id) != _craft_state(reading)
+        }
 
     def _threat(self, reading: WorldObservationValue) -> dict[str, object] | None:
         """What this reading says about being in danger, or None when it says nothing.
@@ -1542,7 +1562,13 @@ class PlayerMind:
     def craft_options_for(self, reading: WorldObservationValue) -> tuple[str, ...]:
         if self.craft_knowledge is not None:
             return tuple(sorted(self.public_crafts(reading)))
-        return craft_options(reading, grid_side=crafting_grid_side(reading))
+        return tuple(
+            product
+            for product in craft_options(reading, grid_side=crafting_grid_side(reading))
+            if (step := step_to_run(reading, product, grid_side=crafting_grid_side(reading)))
+            is not None
+            and self.uncertain_crafts.get(step.recipe.recipe_id) != _craft_state(reading)
+        )
 
     def feasible_skills(self, reading: WorldObservationValue) -> tuple[str, ...]:
         feasible = feasible_skill_ids(self.goal, reading)
@@ -1564,6 +1590,8 @@ class PlayerMind:
         ):
             feasible = (*feasible, "move_to")
         if self.craft_knowledge is None:
+            if not self.craft_options_for(reading):
+                feasible = tuple(name for name in feasible if name != "craft_take_result")
             return feasible
         added = [name for name in feasible if name != "craft_take_result"]
         if (
@@ -2013,6 +2041,8 @@ class PlayerMind:
             self.empty_container_aim = self.last_use_aim
             self.empty_container_inventory = _inventory_contents(reading_after)
         if outcome.result is ActionResultClass.CONFIRMED:
+            if intent.skill == "craft_take_result" and intent.plan.calls:
+                self.uncertain_crafts.pop(intent.plan.calls[0].recipe_id, None)
             for code in FailureCode:
                 self.attempts.pop((intent.skill, code), None)
             self.last_failure = None
@@ -2023,6 +2053,16 @@ class PlayerMind:
             return None
         failure = attribute_failure(outcome)
         self.last_failure = failure
+        if (
+            intent.skill == "craft_take_result"
+            and outcome.result is ActionResultClass.UNKNOWN
+            and "recipe_fill" in outcome.details.get("clicks", "").split("+")
+            and intent.plan.calls
+            and reading_after is not None
+        ):
+            self.uncertain_crafts[intent.plan.calls[0].recipe_id] = _craft_state(reading_after)
+            self.last_precondition = "CRAFT_RESULT_UNRESOLVED"
+            return failure
         if outcome.reason in _PRECONDITION_REROUTE or outcome.reason in _PRECONDITION_DEAD_END:
             self.last_precondition = outcome.reason
             if outcome.reason in _PRECONDITION_DEAD_END:
@@ -2330,6 +2370,8 @@ class PlayerMind:
                     preferred=self._preferred_raw(),
                 )
                 if not isinstance(step, str):
+                    if self.uncertain_crafts.get(step.recipe.recipe_id) == _craft_state(reading):
+                        return None, "CRAFT_RESULT_UNRESOLVED", ask
                     toward = (
                         f"craft {target} from public version knowledge; GUI confirmation required"
                         if step.product_id == target
@@ -2361,6 +2403,8 @@ class PlayerMind:
                     or CRAFT_MATERIALS_MISSING,
                     ask,
                 )
+            if self.uncertain_crafts.get(step.recipe.recipe_id) == _craft_state(reading):
+                return None, "CRAFT_RESULT_UNRESOLVED", ask
             return (
                 SkillPlan(
                     (
