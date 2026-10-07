@@ -24,6 +24,7 @@ from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.session_log import COMMITMENT_RECORDED
 from minekin_core.application.ports.event_store import JsonValue, payload_digest
 from minekin_core.domain.errors import MinekinError
+from minekin_core.domain.events import EventSource, TrustClass
 
 #: How many ledger rows one read may scan, and how many records one packet may carry.
 #: Bounded like the sibling retrievers: a resume packet is a summary input, not an
@@ -111,6 +112,13 @@ def _record(row: sqlite3.Row) -> dict[str, object] | None:
     an ellipsis rather than rejected — a long intention is still an intention.
     """
 
+    # Core is the judging writer. Accepted remote text remains MODEL_SUGGESTED:
+    # its digest must not promote player testimony or another writer's row.
+    if row["source"] != EventSource.CORE.value or row["trust_class"] not in (
+        TrustClass.CORE.value,
+        TrustClass.MODEL_SUGGESTED.value,
+    ):
+        return None
     text = row["payload_json"]
     if not isinstance(text, str) or len(text) > 4096:
         return None

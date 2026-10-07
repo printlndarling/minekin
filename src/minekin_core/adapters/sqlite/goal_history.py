@@ -21,6 +21,7 @@ from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.session_log import SKILL_STEP_RECORDED
 from minekin_core.application.ports.event_store import JsonValue, payload_digest
 from minekin_core.domain.errors import MinekinError
+from minekin_core.domain.events import EventSource, TrustClass
 
 #: How many ledger rows one recall may scan, and how many records one packet may
 #: carry. Bounded on purpose: a recall is a summary input, not a replay archive,
@@ -110,6 +111,9 @@ def _record(row: sqlite3.Row) -> dict[str, object] | None:
     the fields this packet promises, each held to a length.
     """
 
+    # A matching digest proves payload integrity, not an executed Core step.
+    if row["source"] != EventSource.CORE.value or row["trust_class"] != TrustClass.CORE.value:
+        return None
     text = row["payload_json"]
     if not isinstance(text, str) or len(text) > 4096:
         return None

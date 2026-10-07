@@ -15,6 +15,8 @@ import sqlite3
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from minekin_core.adapters.sqlite.commitment_history import (
     MAX_TEXT_CARRY_CHARS,
     RECORD_LIMIT,
@@ -29,6 +31,7 @@ from minekin_core.adapters.sqlite.session_log import (
 )
 from minekin_core.application.ports.clock import FakeClock
 from minekin_core.application.ports.event_store import JsonValue, payload_digest
+from minekin_core.cli.session import mind_for_run
 from minekin_core.domain.events import EventSource, TrustClass
 
 
@@ -47,6 +50,7 @@ def _event(
     run_id: str = "run-a",
     payload: dict[str, JsonValue] | None = None,
     trust_class: str = "MODEL_SUGGESTED",
+    source: str = "CORE",
     corrupt: bool = False,
 ) -> None:
     default: dict[str, JsonValue] = {
@@ -63,17 +67,47 @@ def _event(
             "correlation_id,monotonic_ns,observed_at_utc,source,trust_class,"
             "payload_json,payload_hash) "
             "VALUES (?, ?, 1, ?, ?, '1', 'test', 0, "
-            "'2026-10-07T00:00:00+00:00', 'CORE', ?, ?, ?)",
+            "'2026-10-07T00:00:00+00:00', ?, ?, ?, ?)",
             (
                 f"event-{abs(hash((run_id, event_type, json.dumps(body)))) % 10**12}",
                 event_type,
                 kin_id,
                 run_id,
+                source,
                 trust_class,
                 json.dumps(body),
                 digest,
             ),
         )
+
+
+@pytest.mark.parametrize(
+    "source,trust_class",
+    [
+        ("BRIDGE", "MODEL_SUGGESTED"),
+        ("OPERATOR_CLI", "OPERATOR"),
+        ("CORE", "PLAYER_CHAT"),
+        ("CORE", "UNTRUSTED_WORLD_CONTENT"),
+    ],
+)
+def test_commitment_recall_requires_the_judging_writer_without_upgrading_model_text(
+    tmp_path: Path, source: str, trust_class: str
+) -> None:
+    database = _database(tmp_path)
+    _event(database, run_id="accepted-model", trust_class="MODEL_SUGGESTED")
+    _event(database, run_id="core-intent", trust_class="CORE")
+    _event(database, run_id="not-accepted", source=source, trust_class=trust_class)
+    before = database.read_bytes()
+    packet = read_unfinished_commitments(database, kin_id="kin-one")
+    records = cast("list[dict[str, object]]", packet["records"])
+    assert [(record["run_id"], record["trust_class"]) for record in records] == [
+        ("core-intent", "CORE"),
+        ("accepted-model", "MODEL_SUGGESTED"),
+    ]
+    assert packet["skipped_unreadable"] == 1
+    resumed = mind_for_run("kin-one", {}, kin_dir=database.parent)
+    assert resumed.session_history["commitments"] == packet
+    assert database.read_bytes() == before
 
 
 def test_recorded_commitments_read_back_newest_first_with_their_sources(tmp_path: Path) -> None:

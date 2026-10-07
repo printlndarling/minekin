@@ -7,6 +7,8 @@ import sqlite3
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from minekin_core.adapters.sqlite.connection import migrate
 from minekin_core.adapters.sqlite.goal_history import (
     MAX_REASON_CHARS,
@@ -16,6 +18,7 @@ from minekin_core.adapters.sqlite.goal_history import (
 )
 from minekin_core.adapters.sqlite.session_log import SKILL_STEP_RECORDED
 from minekin_core.application.ports.event_store import JsonValue, payload_digest
+from minekin_core.cli.session import mind_for_run
 
 
 def _database(tmp_path: Path) -> Path:
@@ -38,6 +41,8 @@ def _step(
     goal_product_id: str = "",
     goal: str = "",
     corrupt: bool = False,
+    source: str = "CORE",
+    trust_class: str = "CORE",
 ) -> None:
     del position_hint
     payload: dict[str, JsonValue] = {
@@ -55,16 +60,46 @@ def _step(
             "correlation_id,monotonic_ns,observed_at_utc,source,trust_class,"
             "payload_json,payload_hash) "
             "VALUES (?, ?, 1, ?, ?, '1', 'test', 0, "
-            "'2026-10-03T00:00:00+00:00', 'CORE', 'CORE', ?, ?)",
+            "'2026-10-03T00:00:00+00:00', ?, ?, ?, ?)",
             (
                 f"event-{abs(hash((run_id, skill, result, reason))) % 10**12}",
                 SKILL_STEP_RECORDED,
                 kin_id,
                 run_id,
+                source,
+                trust_class,
                 json.dumps(payload),
                 digest,
             ),
         )
+
+
+@pytest.mark.parametrize(
+    "source,trust_class",
+    [
+        ("BRIDGE", "CORE"),
+        ("CORE", "MODEL_SUGGESTED"),
+        ("CORE", "UNTRUSTED_WORLD_CONTENT"),
+        ("LAUNCHER", "CORE"),
+    ],
+)
+def test_goal_recall_does_not_turn_other_sources_into_executed_steps(
+    tmp_path: Path, source: str, trust_class: str
+) -> None:
+    database = _database(tmp_path)
+    _step(database, position_hint=1, run_id="actual-step")
+    _step(database, position_hint=2, run_id="not-a-step", source=source, trust_class=trust_class)
+    before = database.read_bytes()
+    packet = recall_goal_history(database, kin_id="kin-one", product_id="minecraft:wooden_pickaxe")
+    records = cast("list[dict[str, object]]", packet["records"])
+    assert [record["run_id"] for record in records] == ["actual-step"]
+    assert packet["skipped_unreadable"] == 1
+    assert packet["records_omitted_within_scan"] == 0
+    resumed = mind_for_run(
+        "kin-one", {"MINEKIN_GOAL_PRODUCT": "minecraft:wooden_pickaxe"}, kin_dir=database.parent
+    )
+    assert resumed.session_history["goal_history"] == packet
+    assert database.read_bytes() == before
 
 
 def test_recall_returns_anchored_steps_newest_first_with_sources(tmp_path: Path) -> None:
