@@ -1571,3 +1571,16 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **先红后绿**：decode 2 新（键解码＋超界落空而行站立）；记录行 1 新（键随行走）；边界表 +1 字段。门（uv）：`verify_fixture_digests` OK、pyright 0/0/0、ruff 0、format 523、全仓 **4238 passed / 2 skipped**。
 
 **按实/不声明**：单元＋构建面。**不声明活体**：真实改名/同名场景的活体读数等活体线恢复且场上有真人。**另按实记录**：容器重验**再次被内存守护打断**（后台 tar 卷填充遇上系统临界低内存、被 reap；按守护规则**不自行重启**，待操作者放行）——新 jar 的跨平台可复现性仍为具名待办。CI：say 卡 `cd638ae`/`b245281` `success`（`5451d4f` 未单独取到结论，其整树内容经 `b245281` 验证）。
+
+## 六之六十二、逐账号的历史召回：账号键的第一个读者（2026-10-07，单元面交付）
+
+**缺口**：账号键卡落了承载（`sender_id`），但没有任何读者——契约验收 2"玩家 A 相隔多次会话回来，正确取回与 A 的约定"里"取回"的那一半还是空的。本轮补上人物轴的第一格读侧。
+
+**交付**：
+1. **`recall_actor_history`（`adapters/sqlite/actor_history.py`）**：按**账号键精确匹配**（绝不回退到名字——同名两人两段历史、改名一人一段历史、无键的行归"没有稳定键的人"且绝不借入他人历史），有界（扫描 64/记录 8）、digest 校验、坏行跳过计数、长文本省略号截断；无键＝`no_anchor`、无命中＝`not_retrieved`（不是空故事）；可 `exclude_run_id`，默认**含本 run**（"我们一直在聊什么"要读到当下）。
+2. **心的端口**：`PlayerMind.actor_history: Callable[[str], Mapping] | None`（会话拥有数据库路径、造查询闭包；心只决定"谁值得一问"）；`mind_for` 透传；`decide()` 里 **drain 批次里每个带键的说话者恰好问一次**（同一账号两句＝一个问题；无键行不问），包按**键**挂进 `DecisionRequest.actor_context`（≤8 有界上界写在构造器里）。
+3. **offer**：`actor_context` 随 offer 成 data（空也为 `{}` 不省略）；`recent_chat` 行增 `sender_id`（模型能把行与历史对上）；提示词纪律：actor_context 是**这些账号此前说过的话**——跨会话同一人，但名字会变会撞车、**键才是身份、同名两人两段历史**；是旧证词，不是当下事实、不是许可。
+
+**先红后绿**：召回 6 格（本账号行倒序、同名不并号、无键不借入、`no_anchor`/无命中/缺账、坏行与界、kin 范围与 exclude）；心 1 格（每键一次查询、无键不问、无端口不编造）；假端点 1 格（actor_context 按键随 body 成 data）。**同批暴露的既有 flake 一并修**：`test_gateway_session_jobs` 五处"3 秒等 mock 作业离开 ACTIVE"在全量负载下量到太紧（本日两次全量红即它），改为共享 30s 上限常量（mock 作业的场景里该值是上限不是期望；上限只为防挂死卡套件）。
+
+**按实/不声明**：单元面；活体（真实同名/改名场景）等窗口与真人。门（uv）：ruff 0、format 523、pyright 0/0/0、全仓 **4246 passed / 2 skipped**（首两次全量的 2/1 红均为上述 flake，第三次净跑绿——已按实记录并修复）。

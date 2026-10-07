@@ -543,6 +543,13 @@ class DecisionRequest:
     persona: PersonaManifest | None = None
     #: Historical software lifecycle only; never current inventory, locations or permissions.
     session_history: Mapping[str, object] = field(default_factory=dict[str, object])
+    #: Per-account history for the people currently speaking, keyed by the account
+    #: key the current reading carries on its chat lines. Historical evidence
+    #: about named accounts — what they said before — never current fact and
+    #: never permission; a name is not a key and this mapping never merges two
+    #: people who share one. Bounded by the recall that fills it and by the
+    #: drain that introduced the speakers.
+    actor_context: Mapping[str, object] = field(default_factory=dict[str, object])
 
     def __post_init__(self) -> None:
         if not self.observation_ref:
@@ -557,6 +564,8 @@ class DecisionRequest:
             raise ValueError("the feasible set cannot contain an unnamed skill")
         if any(urgency < 0 for urgency in self.needs.values()):
             raise ValueError("need urgency cannot be negative")
+        if len(self.actor_context) > 8:
+            raise ValueError("actor context is bounded at 8 speaking accounts")
 
 
 @dataclass(frozen=True, slots=True)

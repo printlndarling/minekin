@@ -21,6 +21,7 @@ tested is which verdicts change the next ask.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import cast
 
@@ -225,6 +226,7 @@ def mind_with(
     *answers: Decision | ModelUnavailable,
     goal: Milestone | None = GOAL,
     policy: DecisionPolicy = DecisionPolicy.RULES,
+    actor_history: Callable[[str], Mapping[str, object]] | None = None,
 ) -> tuple[PlayerMind, CostLedger]:
     """A mind over a scripted provider and one milestone, which the caller names.
 
@@ -246,6 +248,7 @@ def mind_with(
         persona_seed="seed-9",
         goal=goal,
         policy=policy,
+        actor_history=actor_history,
     )
     return mind, ledger
 
@@ -725,10 +728,60 @@ def test_the_summary_carries_recent_chat_attributed_and_stays_silent_when_quiet(
         chat=(ChatMessageValue(game_tick=98, sender="Alex", text="need wood?"),),
     )
     summary = observation_summary(GOAL, spoken)
-    assert summary["recent_chat"] == [{"sender": "Alex", "text": "need wood?"}]
+    assert summary["recent_chat"] == [{"sender": "Alex", "sender_id": "", "text": "need wood?"}]
 
     quiet = observation_summary(GOAL, reading(aim=block_aim()))
     assert "recent_chat" not in quiet
+
+
+def test_a_speaking_accounts_history_rides_the_next_request_by_its_key() -> None:
+    """The account key's first reader, wired: each keyed speaker in the drained
+    batch earns exactly one lookup (the same account twice is one question),
+    the packet travels under its key, a keyless line earns none because there
+    is nobody stable to ask about, and a run with no ledger to ask carries no
+    invented context."""
+
+    asked: list[str] = []
+
+    def lookup(sender_id: str) -> dict[str, object]:
+        asked.append(sender_id)
+        return {"status": "found", "records": [{"text": "before", "sender": "Alex"}]}
+
+    provider = ScriptedProvider(
+        Decision(skill_id="use_target", reason="use what is in view", intent_generation=1)
+    )
+    ledger = CostLedger(run_cost_cap=CAP)
+    mind = mind_for(
+        provider,
+        ledger,
+        kin_id="kin-01",
+        goal=GOAL,
+        policy=DecisionPolicy.MODEL,
+        actor_history=lookup,
+    )
+    subject = replace(
+        reading(aim=block_aim(), items=((0, PLANKS, 5),)),
+        chat=(
+            ChatMessageValue(game_tick=98, sender="Alex", text="hi", sender_id="key-1"),
+            ChatMessageValue(game_tick=99, sender="Alex", text="again", sender_id="key-1"),
+            ChatMessageValue(game_tick=99, sender="Bo", text="unkeyed", sender_id=""),
+        ),
+    )
+
+    mind.next_intent(subject)
+
+    assert asked == ["key-1"]
+    assert provider.requests[0].actor_context == {
+        "key-1": {"status": "found", "records": [{"text": "before", "sender": "Alex"}]}
+    }
+
+    bare, _ = mind_with(
+        Decision(skill_id="use_target", reason="use what is in view", intent_generation=1),
+        policy=DecisionPolicy.MODEL,
+    )
+    bare.next_intent(replace(reading(aim=block_aim(), items=((0, PLANKS, 5),)), chat=subject.chat))
+    bare_provider = cast("ScriptedProvider", bare.provider)
+    assert bare_provider.requests[0].actor_context == {}
 
 
 def test_a_use_spent_on_one_target_is_not_replayed_until_the_aim_moves() -> None:

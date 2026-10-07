@@ -45,7 +45,7 @@ dashboard can mistake a deterministic order for a model.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Final, Protocol
@@ -1011,13 +1011,16 @@ def observation_summary(
     }
     if reading.chat:
         # What other players said to the client, in arrival order: another
-        # account's words with their sender attached. Testimony the answerer may
+        # account's words with their sender attached — and with the account key
+        # when the client reported one, which is what `actor_context` is keyed
+        # by; a name is an attribute, not the join. Testimony the answerer may
         # weigh — and must not mistake for a fact, a system instruction or a
         # permission. Absent entirely when nobody spoke, rather than an empty
         # reassurance. Bounded by construction: the reading carries one drained
         # batch, each line already held to its own bound.
         summary["recent_chat"] = [
-            {"sender": message.sender, "text": message.text} for message in reading.chat
+            {"sender": message.sender, "sender_id": message.sender_id, "text": message.text}
+            for message in reading.chat
         ]
     if milestone is not None:
         summary["goal"] = {
@@ -1231,6 +1234,12 @@ class PlayerMind:
     persona: PersonaManifest | None = None
     session_history: Mapping[str, object] = field(default_factory=dict[str, object])
     craft_knowledge: CraftKnowledge | None = None
+    #: A deterministic lookup for one account's history by its stable key — the
+    #: chat card's account key, made queryable. `None` means this run has no
+    #: ledger to ask: the request then carries no actor context rather than an
+    #: invented one. The callable is the session's (it owns the database path);
+    #: the mind only decides when a speaker has earned a lookup.
+    actor_history: Callable[[str], Mapping[str, object]] | None = None
     intent_generation: int = 0
     goal_met: bool = field(default=False, init=False)
     scan_step: int = field(default=0, init=False)
@@ -1696,6 +1705,16 @@ class PlayerMind:
         summary["view_search"] = self._view_search_summary(reading)
         if threat is not None:
             summary["danger"] = threat
+        # The people who just spoke, each asked about once: the lookup is exact on
+        # the account key (never the name), a keyless line earns no lookup because
+        # there is nobody stable to ask about, and the same account speaking twice
+        # in one drain is one question. The packet is history — what they said
+        # before — never a fact about now and never a permission.
+        actor_context: dict[str, object] = {}
+        if self.actor_history is not None:
+            for message in reading.chat:
+                if message.sender_id and message.sender_id not in actor_context:
+                    actor_context[message.sender_id] = dict(self.actor_history(message.sender_id))
         request = DecisionRequest(
             observation_ref=observation_ref(reading),
             needs=self._needs(reading),
@@ -1705,6 +1724,7 @@ class PlayerMind:
             persona_seed=self.persona_seed,
             persona=self.persona,
             session_history=self.session_history,
+            actor_context=actor_context,
             budget_remaining_micro=self.ledger.remaining(),
             intent_generation=self.intent_generation,
         )
@@ -2628,6 +2648,7 @@ def mind_for(
     persona: PersonaManifest | None = None,
     session_history: Mapping[str, object] | None = None,
     craft_knowledge: CraftKnowledge | None = None,
+    actor_history: Callable[[str], Mapping[str, object]] | None = None,
 ) -> PlayerMind:
     """Build a mind for one session from what the session already resolved.
 
@@ -2656,4 +2677,5 @@ def mind_for(
         persona=persona,
         session_history={} if session_history is None else dict(session_history),
         craft_knowledge=craft_knowledge,
+        actor_history=actor_history,
     )

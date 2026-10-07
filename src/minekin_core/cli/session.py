@@ -88,6 +88,7 @@ from minekin_core.adapters.launcher.supervisor import ProcessIdentity, ProcessSu
 from minekin_core.adapters.model import model_provider_for
 from minekin_core.adapters.public_craft_knowledge import PublicCraftKnowledge
 from minekin_core.adapters.public_recipe_archive import load_recipe_knowledge
+from minekin_core.adapters.sqlite.actor_history import recall_actor_history
 from minekin_core.adapters.sqlite.commitment_history import read_unfinished_commitments
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.goal_history import recall_goal_history
@@ -1278,6 +1279,18 @@ def mind_for_run(
             kin_dir / DATABASE_NAME,
             kin_id=kin_id,
         )
+    actor_history: Callable[[str], dict[str, object]] | None = None
+    if kin_dir is not None:
+        # The account key's first reader: what one speaker said before, queried
+        # exactly on the key and never by name — the memory contract's "改名不
+        # 串人" made usable. The current run's own lines are included on purpose:
+        # "what have we been saying" reads the conversation so far.
+        history_database = kin_dir / DATABASE_NAME
+
+        def _actor_lookup(sender_id: str) -> dict[str, object]:
+            return recall_actor_history(history_database, kin_id=kin_id, sender_id=sender_id)
+
+        actor_history = _actor_lookup
     return mind_for(
         model_provider_for(config, ledger=ledger, environ=environ),
         ledger,
@@ -1288,6 +1301,7 @@ def mind_for_run(
         model_enabled=config.enabled,
         policy=policy,
         craft_knowledge=craft_knowledge,
+        actor_history=actor_history,
     )
 
 

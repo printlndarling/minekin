@@ -19,6 +19,13 @@ from minekin_core.cli.session_runtime import SessionOutcome, SessionRun
 from minekin_core.domain.ids import KinId
 from minekin_core.domain.session_state import SessionState
 
+#: How long these tests wait for a mocked session job to leave ACTIVE. The jobs are
+#: mocked (the launch and prepare steps are monkeypatched), so any value here is a
+#: ceiling rather than an expectation -- but under a full-suite load three seconds
+#: was measured too tight (a flake on 2026-10-07), and the bound exists only so a
+#: genuinely hung job cannot wedge the suite.
+JOB_SETTLE_SECONDS = 30.0
+
 
 def body(**changes: Any) -> dict[str, Any]:
     return {
@@ -136,7 +143,7 @@ def test_client_exit_requires_a_confirmed_clean_code(
     monkeypatch.setattr(session_jobs, "start_and_supervise", launch)
     try:
         assert jobs.start(body())[0] == 202
-        deadline = time.monotonic() + 3
+        deadline = time.monotonic() + JOB_SETTLE_SECONDS
         while jobs.read()["job"]["phase"] in session_jobs.ACTIVE and time.monotonic() < deadline:
             time.sleep(0.01)
         result = jobs.read()["job"]
@@ -163,7 +170,7 @@ def test_expired_preparation_never_launches_and_names_the_deadline(
     monkeypatch.setattr(session_jobs, "prepare_auto_bundle_start", prepare)
     try:
         assert jobs.start(body(durationSeconds=1))[0] == 202
-        deadline = time.monotonic() + 3
+        deadline = time.monotonic() + JOB_SETTLE_SECONDS
         while jobs.read()["job"]["phase"] in session_jobs.ACTIVE and time.monotonic() < deadline:
             time.sleep(0.01)
         result = jobs.read()["job"]
@@ -244,7 +251,7 @@ def test_the_saved_decision_policy_rides_into_the_managed_launch_environment(
     monkeypatch.setattr(session_jobs, "start_and_supervise", launch)
     try:
         assert jobs.start(body())[0] == 202
-        deadline = time.monotonic() + 3
+        deadline = time.monotonic() + JOB_SETTLE_SECONDS
         while jobs.read()["job"]["phase"] in session_jobs.ACTIVE and time.monotonic() < deadline:
             time.sleep(0.01)
     finally:
@@ -282,7 +289,7 @@ def test_provider_off_alone_does_not_select_the_rules_in_the_managed_environment
     monkeypatch.setattr(session_jobs, "start_and_supervise", launch)
     try:
         assert jobs.start(body())[0] == 202
-        deadline = time.monotonic() + 3
+        deadline = time.monotonic() + JOB_SETTLE_SECONDS
         while jobs.read()["job"]["phase"] in session_jobs.ACTIVE and time.monotonic() < deadline:
             time.sleep(0.01)
     finally:
@@ -315,7 +322,7 @@ def _run_job_to_end(
     monkeypatch.setattr(session_jobs, "start_and_supervise", launch)
     try:
         assert jobs.start(body())[0] == 202
-        deadline = time.monotonic() + 3
+        deadline = time.monotonic() + JOB_SETTLE_SECONDS
         while jobs.read()["job"]["phase"] in session_jobs.ACTIVE and time.monotonic() < deadline:
             time.sleep(0.01)
     finally:

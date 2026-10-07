@@ -291,6 +291,7 @@ def offer(
     feasible_skill_ids: tuple[str, ...] = FEASIBLE,
     intent_generation: int = GENERATION,
     observation_summary: Mapping[str, object] | None = None,
+    actor_context: Mapping[str, object] | None = None,
 ) -> DecisionRequest:
     return DecisionRequest(
         observation_ref="obs-1042",
@@ -298,6 +299,7 @@ def offer(
         active_goal="obtain-and-keep-basic-tools",
         feasible_skill_ids=feasible_skill_ids,
         observation_summary={} if observation_summary is None else dict(observation_summary),
+        actor_context={} if actor_context is None else dict(actor_context),
         persona_seed="kin-77:curious",
         budget_remaining_micro=400_000,
         intent_generation=intent_generation,
@@ -416,6 +418,23 @@ def test_a_reply_without_a_commitment_leaves_the_field_absent(
 
     assert isinstance(answered, Decision)
     assert answered.commitment is None
+
+
+def test_the_actor_context_travels_as_data_under_its_account_keys(
+    serve: Callable[[Behavior], Endpoint],
+) -> None:
+    """The account key is what the answerer ties a speaking line to its history:
+    the packet rides under the exact key, as data, and an empty context rides as
+    an empty object rather than being omitted."""
+
+    endpoint = serve(Behavior(body=decision_content("wait", "the light is going")))
+    provider = OpenAICompatibleProvider(config_for(endpoint), environment())
+
+    provider.decide(offer(actor_context={"key-1": {"status": "found", "records": []}}))
+
+    assert shown_offer(endpoint.arrivals[0])["actor_context"] == {
+        "key-1": {"status": "found", "records": []}
+    }
 
 
 def test_the_call_is_accounted_for_with_the_usage_the_endpoint_reported(
