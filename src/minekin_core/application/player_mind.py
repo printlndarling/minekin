@@ -92,6 +92,7 @@ from minekin_core.domain.recipe_catalog import (
     largest_grid_in_plan,
     plan_needs_larger_grid,
 )
+from minekin_core.domain.session_material import canonical_account_id
 from minekin_core.domain.skill_parameters import (
     BEHAVIOR_PARAMETERS,
     HOTBAR_SLOT_COUNT,
@@ -905,7 +906,9 @@ def _nearest_drop(reading: WorldObservationValue) -> EntityCandidate | None:
 
 
 def observation_summary(
-    milestone: Milestone | None, reading: WorldObservationValue
+    milestone: Milestone | None,
+    reading: WorldObservationValue,
+    own_account_id: str = "",
 ) -> dict[str, object]:
     """What this side read, in the fields an answerer needs in order to fill an argument in.
 
@@ -1013,13 +1016,22 @@ def observation_summary(
         # What other players said to the client, in arrival order: another
         # account's words with their sender attached — and with the account key
         # when the client reported one, which is what `actor_context` is keyed
-        # by; a name is an attribute, not the join. Testimony the answerer may
-        # weigh — and must not mistake for a fact, a system instruction or a
-        # permission. Absent entirely when nobody spoke, rather than an empty
-        # reassurance. Bounded by construction: the reading carries one drained
-        # batch, each line already held to its own bound.
+        # by; a name is an attribute, not the join. A line whose key is the
+        # Kin's own account is marked `own`: the server echoed words this Kin
+        # said, which is the line's whole meaning — not testimony from someone
+        # else, and nothing to answer. Testimony the answerer may weigh — and
+        # must not mistake for a fact, a system instruction or a permission.
+        # Absent entirely when nobody spoke, rather than an empty reassurance.
+        # Bounded by construction: the reading carries one drained batch, each
+        # line already held to its own bound.
+        own_account = canonical_account_id(own_account_id)
         summary["recent_chat"] = [
-            {"sender": message.sender, "sender_id": message.sender_id, "text": message.text}
+            {
+                "sender": message.sender,
+                "sender_id": message.sender_id,
+                "own": bool(own_account) and canonical_account_id(message.sender_id) == own_account,
+                "text": message.text,
+            }
             for message in reading.chat
         ]
     if milestone is not None:
@@ -1240,6 +1252,11 @@ class PlayerMind:
     #: invented one. The callable is the session's (it owns the database path);
     #: the mind only decides when a speaker has earned a lookup.
     actor_history: Callable[[str], Mapping[str, object]] | None = None
+    #: The account id this run's client launched as, when the launcher recorded
+    #: one — the Kin's own voice. A chat line whose key matches it is marked
+    #: `own` and never becomes an actor to ask about: the server echoed words
+    #: this Kin said, and answering oneself is not a conversation.
+    own_account_id: str = ""
     intent_generation: int = 0
     goal_met: bool = field(default=False, init=False)
     scan_step: int = field(default=0, init=False)
@@ -1639,7 +1656,7 @@ class PlayerMind:
             return intent
 
         self.intent_generation += 1
-        summary = observation_summary(self.goal, reading)
+        summary = observation_summary(self.goal, reading, own_account_id=self.own_account_id)
         if self.craft_knowledge is not None:
             summary["craft_options"] = list(self.craft_options_for(reading))
             summary["public_recipe_knowledge"] = self.craft_knowledge.as_document()
@@ -1708,13 +1725,19 @@ class PlayerMind:
         # The people who just spoke, each asked about once: the lookup is exact on
         # the account key (never the name), a keyless line earns no lookup because
         # there is nobody stable to ask about, and the same account speaking twice
-        # in one drain is one question. The packet is history — what they said
+        # in one drain is one question. The Kin's own voice is not a person to ask
+        # about — its own line is marked `own` on the summary, and its history is
+        # the ledger it wrote itself. The packet is history — what they said
         # before — never a fact about now and never a permission.
         actor_context: dict[str, object] = {}
         if self.actor_history is not None:
+            own_account = canonical_account_id(self.own_account_id)
             for message in reading.chat:
-                if message.sender_id and message.sender_id not in actor_context:
-                    actor_context[message.sender_id] = dict(self.actor_history(message.sender_id))
+                if not message.sender_id or message.sender_id in actor_context:
+                    continue
+                if own_account and canonical_account_id(message.sender_id) == own_account:
+                    continue
+                actor_context[message.sender_id] = dict(self.actor_history(message.sender_id))
         request = DecisionRequest(
             observation_ref=observation_ref(reading),
             needs=self._needs(reading),
@@ -2649,6 +2672,7 @@ def mind_for(
     session_history: Mapping[str, object] | None = None,
     craft_knowledge: CraftKnowledge | None = None,
     actor_history: Callable[[str], Mapping[str, object]] | None = None,
+    own_account_id: str = "",
 ) -> PlayerMind:
     """Build a mind for one session from what the session already resolved.
 
@@ -2678,4 +2702,5 @@ def mind_for(
         session_history={} if session_history is None else dict(session_history),
         craft_knowledge=craft_knowledge,
         actor_history=actor_history,
+        own_account_id=own_account_id,
     )

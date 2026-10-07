@@ -172,7 +172,7 @@ from minekin_core.domain.model_access import cost_ledger_for, model_config
 from minekin_core.domain.model_usage import ModelUsageTotals
 from minekin_core.domain.perception import WorldObservationValue
 from minekin_core.domain.recovery import CONNECT_WORLD, INPUT_LEASE, START_CLIENT
-from minekin_core.domain.session_material import RecordedSessionMaterial
+from minekin_core.domain.session_material import RecordedSessionMaterial, canonical_account_id
 from minekin_core.domain.session_state import SessionState, SessionStateMachine
 from minekin_core.domain.time import Deadline, MonotonicInstant
 from minekin_core.domain.world_actions import ActionResultClass, SkillOutcome
@@ -1142,6 +1142,7 @@ def _commitment_verdict(
 
 def _chat_records(
     reading: WorldObservationValue,
+    own_account_id: str = "",
 ) -> list[tuple[str, dict[str, Any], EventSource, TrustClass]]:
     """The ledger rows one reading's chat owes, as data — recorded by the caller.
 
@@ -1149,17 +1150,22 @@ def _chat_records(
     of every row are pinned by unit cells rather than argued from a live run.
     One row per heard line under PLAYER_CHAT: another account's words with
     attribution, and a later summary cannot wash the attribution off (memory
-    contract rule 4). The omitted count is its own row under BRIDGE_FILTERED —
-    that row is about the channel, not about any account's words — so a reader
-    never takes a shorter conversation for the whole one.
+    contract rule 4). A line whose key is this run's own account additionally
+    carries `own: True` — the server echoed words this Kin said — so a ledger
+    reader sees which lines were its own voice without re-deriving the account
+    comparison. The omitted count is its own row under BRIDGE_FILTERED — that
+    row is about the channel, not about any account's words — so a reader never
+    takes a shorter conversation for the whole one.
     """
 
+    own_account = canonical_account_id(own_account_id)
     rows: list[tuple[str, dict[str, Any], EventSource, TrustClass]] = [
         (
             PLAYER_CHAT_OBSERVED,
             {
                 "sender": message.sender,
                 "sender_id": message.sender_id,
+                "own": bool(own_account) and canonical_account_id(message.sender_id) == own_account,
                 "text": message.text,
                 "game_tick": message.game_tick,
             },
@@ -1206,6 +1212,7 @@ def mind_for_run(
     exclude_run_id: str = "",
     game_version: str | None = None,
     current_server_profile_id: str = "",
+    own_account_id: str = "",
 ) -> PlayerMind:
     """The mind for one run, from what this operator's environment configures.
 
@@ -1302,6 +1309,7 @@ def mind_for_run(
         policy=policy,
         craft_knowledge=craft_knowledge,
         actor_history=actor_history,
+        own_account_id=own_account_id,
     )
 
 
@@ -1902,7 +1910,10 @@ async def start_and_supervise(
                 source=EventSource.BRIDGE,
                 trust_class=TrustClass.BRIDGE_FILTERED,
             )
-        for event_type, chat_payload, chat_source, chat_trust in _chat_records(reading):
+        for event_type, chat_payload, chat_source, chat_trust in _chat_records(
+            reading,
+            "" if prepared.recorded is None else prepared.recorded.uuid_argv,
+        ):
             await record(event_type, chat_payload, source=chat_source, trust_class=chat_trust)
 
     skill_outcome: list[SkillSequence | None] = [None]
@@ -2018,6 +2029,10 @@ async def start_and_supervise(
             game_version=launched_minecraft_version(profile),
             # The attempt's own target is the only place this run's world is named.
             current_server_profile_id="" if target is None else target.profile_id,
+            # The account this launch recorded in the client's argv — the Kin's
+            # own voice, so the echoed chat the server sends back is recognised
+            # as its own words rather than heard as a stranger's.
+            own_account_id="" if prepared.recorded is None else prepared.recorded.uuid_argv,
         )
         # One counter across whichever ask this run carries: the ledger reader's question
         # is "which step of the sequence is this", and a scripted plan and a mind-written

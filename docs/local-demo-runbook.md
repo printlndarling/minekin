@@ -1584,3 +1584,17 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **先红后绿**：召回 6 格（本账号行倒序、同名不并号、无键不借入、`no_anchor`/无命中/缺账、坏行与界、kin 范围与 exclude）；心 1 格（每键一次查询、无键不问、无端口不编造）；假端点 1 格（actor_context 按键随 body 成 data）。**同批暴露的既有 flake 一并修**：`test_gateway_session_jobs` 五处"3 秒等 mock 作业离开 ACTIVE"在全量负载下量到太紧（本日两次全量红即它），改为共享 30s 上限常量（mock 作业的场景里该值是上限不是期望；上限只为防挂死卡套件）。
 
 **按实/不声明**：单元面；活体（真实同名/改名场景）等窗口与真人。门（uv）：ruff 0、format 523、pyright 0/0/0、全仓 **4246 passed / 2 skipped**（首两次全量的 2/1 红均为上述 flake，第三次净跑绿——已按实记录并修复）。
+
+## 六之六十三、Kin 认得自己的声音：回响行不再冒充陌生人（2026-10-07，单元面交付）
+
+**缺口**：服务端会把 Kin 自己发出的聊天按账号回显给客户端——这些行经过聊天管道后与"别人说的话"长得一样：模型可能把它当成另一个说话者去应答，actor_context 也会把 Kin **自己**当成"正在说话的账号"去查历史。纯 Core 可判（启动器早把账号 uuid 记在 argv 素材里），不需要动桥或线。
+
+**交付**：
+1. **`canonical_account_id`（`session_material.py` 公开助手）**：两种拼写（带/不带连字符）归一成同一个账号 id，非 uuid 一律 `""`——**同一个归一化**给启动器素材核对与本次比较共用，不搞两套相等。
+2. **心**：`own_account_id` 字段（来自 `prepared.recorded.uuid_argv`，无记录则空＝降级且如实）；`observation_summary` 的 `recent_chat` 行增 `"own": bool`（按归一化 id 比对）；`actor_context` **跳过自己的键**——自己的历史是它自己写的账本，不把自己当第三方去查。
+3. **账本**：`_chat_records` 的 `PlayerChatObserved` payload 增 `"own"`（记录点手里就有 run 自己的账号），读者不用再自行推导"哪几行是自己的声音"。
+4. **提示词**：`own:true` 的行＝服务端回显的**你自己**的话——世界收下了它们，那里没有人要应答。
+
+**先红后绿**：归一化 1 格（带/不带连字符/空白/非 uuid）；账本行 1 新＋既有钉按设计意图更新（两处 payload 加 `own: False`）；心 1 新（回响标 own、不查自己、别的账号照查、**不带连字符的线端拼写也认**）＋摘要钉更新。
+
+**按实/不声明**：单元面。**不声明活体**：真实回显场景（服务端广播自己的行）随活体线恢复后取。门（uv）：ruff 0、format 526、pyright 0/0/0、全仓 **4249 passed / 2 skipped**。

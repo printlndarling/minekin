@@ -42,6 +42,18 @@ def _canonical_uuid(value: str) -> str | None:
             return None
 
 
+def canonical_account_id(value: str) -> str:
+    """One account id in the canonical dashed form, or "" when it is not a UUID.
+
+    Public because a second layer now compares account ids — the chat lines name
+    the client's own spelling of the Kin's account, and recognising its own
+    voice has to happen on the same normalisation the launcher's material check
+    uses rather than on two spellings of equality.
+    """
+
+    return _canonical_uuid(value) or ""
+
+
 @dataclass(frozen=True, slots=True)
 class RecordedSessionMaterial:
     """The session material the Launcher encoded into the launch arguments."""

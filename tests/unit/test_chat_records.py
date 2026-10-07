@@ -35,7 +35,7 @@ def test_a_heard_line_becomes_one_row_under_the_players_own_class() -> None:
     assert _chat_records(decode_world_observation(message)) == [
         (
             PLAYER_CHAT_OBSERVED,
-            {"sender": "Alex", "sender_id": "", "text": "hello", "game_tick": 99},
+            {"sender": "Alex", "sender_id": "", "own": False, "text": "hello", "game_tick": 99},
             EventSource.BRIDGE,
             TrustClass.PLAYER_CHAT,
         )
@@ -63,9 +63,41 @@ def test_the_account_key_rides_the_row_when_the_client_reported_one() -> None:
     assert rows[0][1] == {
         "sender": "Alex",
         "sender_id": "f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2",
+        "own": False,
         "text": "hello",
         "game_tick": 99,
     }
+
+
+def test_a_line_from_the_runs_own_account_is_marked_own() -> None:
+    """The server echoes words the Kin said; the row says which lines were its own
+    voice, comparing canonically — the launcher's dashed spelling and the wire's
+    dashless one are the same account."""
+
+    message = wire()
+    message.chat.extend(
+        [
+            observation_pb2.PlayerChatMessage(
+                game_tick=99,
+                sender="minekin",
+                text="hello there",
+                sender_id="f84c6a790a4e45e0879bcd49ebd4c4e2",
+            ),
+            observation_pb2.PlayerChatMessage(
+                game_tick=100,
+                sender="Alex",
+                text="hi back",
+                sender_id="11111111-2222-4333-8444-555555555555",
+            ),
+        ]
+    )
+
+    rows = _chat_records(
+        decode_world_observation(message),
+        "f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2",
+    )
+
+    assert [row[1]["own"] for row in rows] == [True, False]
 
 
 def test_an_omission_becomes_its_own_row_rather_than_a_shorter_conversation() -> None:

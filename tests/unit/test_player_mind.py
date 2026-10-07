@@ -728,7 +728,9 @@ def test_the_summary_carries_recent_chat_attributed_and_stays_silent_when_quiet(
         chat=(ChatMessageValue(game_tick=98, sender="Alex", text="need wood?"),),
     )
     summary = observation_summary(GOAL, spoken)
-    assert summary["recent_chat"] == [{"sender": "Alex", "sender_id": "", "text": "need wood?"}]
+    assert summary["recent_chat"] == [
+        {"sender": "Alex", "sender_id": "", "own": False, "text": "need wood?"}
+    ]
 
     quiet = observation_summary(GOAL, reading(aim=block_aim()))
     assert "recent_chat" not in quiet
@@ -782,6 +784,53 @@ def test_a_speaking_accounts_history_rides_the_next_request_by_its_key() -> None
     bare.next_intent(replace(reading(aim=block_aim(), items=((0, PLANKS, 5),)), chat=subject.chat))
     bare_provider = cast("ScriptedProvider", bare.provider)
     assert bare_provider.requests[0].actor_context == {}
+
+
+def test_the_kins_own_echoed_line_is_marked_and_never_becomes_an_actor_to_ask_about() -> None:
+    """The server echoes what the Kin said; the mind marks the line `own` and does
+    not look itself up as a third party — its own history is the ledger it wrote
+    — while a real other account still earns its lookup. The comparison is
+    canonical: the launcher's dashed spelling and the wire's dashless one are the
+    same account."""
+
+    asked: list[str] = []
+
+    def lookup(sender_id: str) -> dict[str, object]:
+        asked.append(sender_id)
+        return {"status": "found", "records": []}
+
+    provider = ScriptedProvider(
+        Decision(skill_id="use_target", reason="use what is in view", intent_generation=1)
+    )
+    mind = mind_for(
+        provider,
+        CostLedger(run_cost_cap=CAP),
+        kin_id="kin-01",
+        goal=GOAL,
+        policy=DecisionPolicy.MODEL,
+        actor_history=lookup,
+        own_account_id="f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2",
+    )
+    subject = replace(
+        reading(aim=block_aim(), items=((0, PLANKS, 5),)),
+        chat=(
+            ChatMessageValue(
+                game_tick=98,
+                sender="minekin",
+                text="hello there",
+                sender_id="f84c6a790a4e45e0879bcd49ebd4c4e2",
+            ),
+            ChatMessageValue(game_tick=99, sender="Alex", text="hi", sender_id="key-1"),
+        ),
+    )
+
+    mind.next_intent(subject)
+
+    request = provider.requests[0]
+    recent = cast("list[dict[str, object]]", request.observation_summary["recent_chat"])
+    assert [row["own"] for row in recent] == [True, False]
+    assert asked == ["key-1"]
+    assert set(request.actor_context) == {"key-1"}
 
 
 def test_a_use_spent_on_one_target_is_not_replayed_until_the_aim_moves() -> None:

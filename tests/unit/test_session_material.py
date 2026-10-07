@@ -31,6 +31,7 @@ from minekin_core.domain.session_material import (
     MISMATCH_XUID_PRESENCE,
     RecordedSessionMaterial,
     ReportedSessionIdentity,
+    canonical_account_id,
     compare_session_material,
     identity_ledger_record,
 )
@@ -362,3 +363,16 @@ def test_the_record_has_no_field_that_could_hold_a_credential_body() -> None:
         "matched",
         "mismatches",
     }
+
+
+def test_canonical_account_id_normalises_both_spellings_and_refuses_junk() -> None:
+    """One normalisation for every comparison: the launcher records a dashed uuid,
+    the wire may deliver it without dashes, and a value that is not a uuid is
+    nobody — "" — rather than a fifth spelling of equality."""
+
+    dashed = "f84c6a79-0a4e-45e0-879b-cd49ebd4c4e2"
+    assert canonical_account_id(dashed) == dashed
+    assert canonical_account_id("f84c6a790a4e45e0879bcd49ebd4c4e2") == dashed
+    assert canonical_account_id(f"  {dashed}  ") == dashed
+    assert canonical_account_id("") == ""
+    assert canonical_account_id("kin-one") == ""
