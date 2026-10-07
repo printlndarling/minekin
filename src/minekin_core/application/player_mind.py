@@ -48,7 +48,7 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Final, Protocol
+from typing import Final, Protocol, cast
 
 from minekin_core.application.skill_plan import (
     SKILL_ARGUMENT_MISSING,
@@ -2506,6 +2506,15 @@ class PlayerMind:
             asked_z = _asked_number(arguments, "z")
             if asked_x is None or asked_z is None:
                 return None, SKILL_ARGUMENT_MISSING, {}
+            # The offer's coordinates are evidence, not merely a hint in the prompt.
+            # Refuse an invented destination without selecting a replacement for the mind.
+            if not any(
+                isinstance(place := entry.get("place"), dict)
+                and cast(dict[str, object], place).get("x") == asked_x
+                and cast(dict[str, object], place).get("z") == asked_z
+                for entry in self.recent_places
+            ):
+                return None, "MOVE_TARGET_NOT_OBSERVED", {}
             return (
                 SkillPlan((SkillCall(name="move_to", x=asked_x, z=asked_z),)),
                 "walk to a remembered spot",

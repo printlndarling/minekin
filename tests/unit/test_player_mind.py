@@ -3428,6 +3428,30 @@ def test_move_to_is_offered_only_once_the_run_has_a_place_to_walk_to() -> None:
     assert walked.plan.calls[0].z == -8.0
 
 
+def test_a_model_walk_cannot_name_a_place_outside_the_presented_spoor() -> None:
+    mind, _ = mind_with(
+        Decision(skill_id="turn_to", reason="look", intent_generation=1),
+        Decision(
+            skill_id="move_to",
+            reason="an invented destination",
+            intent_generation=2,
+            arguments={"x": 65, "z": -8},
+        ),
+        policy=DecisionPolicy.MODEL,
+    )
+    spot = _self_at(64.9, 63.0, -7.1)
+    first = mind.next_intent(reading(self_state=spot))
+    mind.record_result(
+        first,
+        outcome(ActionResultClass.CONFIRMED),
+        reading(tick=150, self_state=spot),
+    )
+    refused = mind.next_intent(reading(tick=160, self_state=spot))
+    assert refused.kind is MindDecisionKind.HOLD
+    assert mind.last_model_refusal == "MOVE_TARGET_NOT_OBSERVED"
+    assert refused.plan.calls == ()
+
+
 def test_the_move_to_offer_waits_for_a_body_that_can_walk() -> None:
     """Even with the spoor warm, a dead body, a standing window, or a reading that
     does not say where the Kin stands keeps move_to off the offer — its first touch
