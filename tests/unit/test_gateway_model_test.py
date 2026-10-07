@@ -54,10 +54,24 @@ def test_probe_requires_exact_confirmation(tmp_path: Path, body: dict[str, Any])
 
 
 @pytest.mark.parametrize("valid", [True, False])
+@pytest.mark.parametrize(
+    "arguments,parameter_reason",
+    [
+        ({"yaw_degrees": 0, "pitch_degrees": 0}, ""),
+        ({"yaw_degrees": 180, "pitch_degrees": -90}, ""),
+        ({"yaw_degrees": 181}, "MODEL_ARGUMENTS_INVALID"),
+        ({"pitch_degrees": 91}, "MODEL_ARGUMENTS_INVALID"),
+        ({"yaw_degrees": True}, "MODEL_ARGUMENTS_INVALID"),
+        ({"yaw_degrees": "private-prose"}, "MODEL_ARGUMENTS_INVALID"),
+        ({"extra": "private-prose"}, "MODEL_ARGUMENTS_UNKNOWN"),
+    ],
+)
 def test_local_endpoint_proves_one_structured_decision_and_redacts_model_prose(
     tmp_path: Path,
     clean_env: dict[str, str],
     valid: bool,
+    arguments: dict[str, Any],
+    parameter_reason: str,
 ) -> None:
     calls: list[str] = []
 
@@ -69,7 +83,7 @@ def test_local_endpoint_proves_one_structured_decision_and_redacts_model_prose(
                 "skill_id": "turn_to" if valid else "not_offered",
                 "reason": "private-prose",
                 "intent_generation": 1,
-                "arguments": {"yaw_degrees": 0, "pitch_degrees": 0},
+                "arguments": arguments,
             }
             payload = json.dumps(
                 {
@@ -109,8 +123,9 @@ def test_local_endpoint_proves_one_structured_decision_and_redacts_model_prose(
         server.server_close()
         thread.join(timeout=3)
     assert status == 200
-    assert result["status"] == ("connected" if valid else "unavailable")
-    assert result["reason"] == ("" if valid else "DECISION_OUT_OF_BOUNDS")
+    expected_reason = parameter_reason if valid else "DECISION_OUT_OF_BOUNDS"
+    assert result["status"] == ("connected" if not expected_reason else "unavailable")
+    assert result["reason"] == expected_reason
     assert result["timeoutMs"] == 20_000
     assert result["modelCalls"] == 1
     assert result["estimatedCostMicro"] > 0
