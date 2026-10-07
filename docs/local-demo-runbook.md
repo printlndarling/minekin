@@ -1626,3 +1626,16 @@ step: collect_dropped INTERRUPTED SESSION_STOP_REQUESTED (action_id ee48578c…)
 **先红后绿**：decode 4 格（完整行、非实体只剩 source_type、超界归空、全空 None）；账本 2 格（新读数成行、无记录不欠行且非实体仍欠一行）；boundary 形状钉 1 格＋两表更新；心 1 格（`last_hurt` 进摘要）；gateway 1 格。全量套件顺带抓红并修掉一枚测试助手竞态：`test_gateway_session_jobs` 的等待环对"记录瞬时空"直接下标（`read()` 在记录短暂缺失/替换中如实回 `job: None`），载荷下复现 `TypeError`——环改为把 None 当"仍在落定"、由 deadline 收口（同文件三处同修）。
 
 **按实/不声明**：单元＋构建面。**不声明活体**：真实受击读数（含渲染不到出手者的隐身/远射场合按 `source_type` 如实）随活体线恢复后取；设计文档切片 B 已按本次测量标记"已交付（单元＋构建面）"并记录新鲜度定案。门（uv）：Loom `BUILD SUCCESSFUL`、ruff 0、format 369、pyright 0/0/0、`verify_fixture_digests` OK、受影响集 426 passed、全仓 **4259 passed / 2 skipped**。
+
+## 六之六十六、走回一个记得的地方：位置跫迹与 move_to 上架（2026-10-07，单元面交付）
+
+**缺口（六之四十七写死的条件的解除）**：`move_to` 的执行器与计划面在 S1 卡就立好了，但被**有意不上架**——"摘要里还没有'值得走去的坐标'（记忆/地标数据未落地），提前上架只会邀请模型编造坐标；写在上架处的理由随卡记录"。本卡把条件做实：给心一本自己刚走过的地方的账（同 run 内的位置跫迹），并按该条件在 offer 处立门。
+
+**交付（纯 Core；无 proto、无桥、无 pin 链）**：
+1. **位置跫迹（心）**：`record_result` 从**判决读数**（该步 outcome 所依据的那条 `reading_after` 的 `self_state.x/y/z`）floor 出块坐标——同一条读数，所以行里的点是该步真正发生在的地方；任一字段缺席、非有限、或超出 `move_to` 自己的世界界（±30M）→ **行不落地**（缺席不是原点）；连续同点**刷新**最新行而不是重复坐标（站着合成是一个地方，不是六行）；界 `RECENT_PLACES_LIMIT=4`；摘要只在有行时带 `recent_places`。行含 skill/result/place/game_tick。
+2. **offer 门（上架处的理由）**：`feasible_skills` 只在**跫迹非空且身体可走**（活着、无窗、读数报位置）时追加 `move_to`——六之四十七担心的"没地方可走还上架"在门后不再成立：坐标只能是它自己刚读到的点。**rules 路径把 move_to 与 say 同层排除**（确定性序填不出"回哪个点"这种判断，与"规则序不能说话"同一条纪律）。
+3. **模型问答面补全（`_call_for` 的 move_to 分支）**：S1 卡只建了解析/执行/计划面，模型把答案说成 move_to 时原有代码会落到"当作一次扫描转身"的兜底——现在 x/z 按答案照抄建计划；缺坐标按 `SKILL_ARGUMENT_MISSING` 名拒，**绝不从跫迹替选目标**（回哪个点是问的选择，不是这一侧的决定）。
+4. **提示词**：两句写进系统提示——`recent_places` 是"你自己的最近步骤所结之处（判决读取时的站位）——发生过的事，不是那里还放着什么东西的证明"；`move_to` 只能点名 `recent_places` 给出的点，**绝不自行编坐标**；尾款 "no slot number and no coordinates" 改为 "no coordinates beyond what the chosen skill's entry asks"（原句在 move_to 上架后自相矛盾）。
+5. **上架逼出的既有护栏回归（先红后绿，套件抓的）**：`use_target` 重复闸的放行条件数的是"还有另一件能做世界的事"——`move_to` 入 offer 后会被它误计数，把 rules 自己的重试从规则序手里扣掉（正是该注释里 `say` 的先例：不能拿规则序填不出的技能去扣它的重试）。move_to 加入同层豁免，注释按实扩写。
+
+**先红后绿**：6 新（`_place_of_reading` 的 floor/界/缺席三格；步的判决读数成行＋摘要带键；同点刷新＋界 4；无位置不欠行；offer 冷→热＋走动的 x/z 解析；可走身体三守卫）＋fake-endpoint 提示词新片语钉。**按实/不声明**：单元面；活体读数（模型真的用跫迹走回某处、或不用）随活体线；**跨会话的地标记忆**（台账位置锚＋世界作用域，记忆切片 C 的"地点面"）是下一片，不在本卡声明。门（uv）：ruff 0、format 310、pyright 0/0/0、全仓 **4265 passed / 2 skipped**。

@@ -118,7 +118,11 @@ SYSTEM_PROMPT: str = (
     "asks for. turn_to angles are absolute world yaw/pitch, not relative deltas; compare the "
     "current angles and recent_actions before turning. view_search supplies optional absolute "
     "camera angles: a remembered crosshair bearing is not proof a block remains there. Sweep "
-    "pitch as well as yaw when horizontal turns reveal nothing. recent_actions separates the "
+    "pitch as well as yaw when horizontal turns reveal nothing. recent_places, when present, "
+    "lists the spots your own recent steps concluded at — where you stood when each verdict "
+    "was read — a past occurrence, not proof anything is still there. move_to, when offered, "
+    "walks to x/z and may only name a spot that a recent_places row gives; never compose "
+    "coordinates yourself. recent_actions separates the "
     "requested goal from executed_product_id and inventory_after; a prerequisite craft does "
     "not finish the requested goal. A confirmed screen open or close does "
     "not pay missing materials: use the observed inventory and craft_plan to gather "
@@ -126,7 +130,8 @@ SYSTEM_PROMPT: str = (
     'in "skill_parameters" asks for: an item id only in the spelling the request shows, a '
     "quantity only within the bounds it states, a text only within its stated cap and "
     "never beginning with '/', and nothing else — no key you were not given, "
-    "no item the request did not name, no recipe, no slot number and no coordinates. The "
+    "no item the request did not name, no recipe, no slot number, and no coordinates "
+    "beyond what the chosen skill's entry asks. The "
     "request carries the Kin's own observation summary and the Kin, not you, decides what a "
     "product costs and whether a step is possible. Answer with one JSON object and nothing "
     'else: {"skill_id": <one offered id>, "arguments": <the object that skill takes>, "reason": '

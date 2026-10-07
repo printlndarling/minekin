@@ -57,6 +57,7 @@ from minekin_core.application.skill_plan import (
 )
 from minekin_core.application.world_skills import (
     FIGHT_MIN_HEALTH,
+    MOVETO_MAX_COORDINATE,
     RETREAT_FLEE_SECONDS,
     SkillCall,
 )
@@ -391,6 +392,36 @@ def crafting_grid_side(reading: WorldObservationValue) -> int:
     if gui is not None and gui.sync_id is not None and gui.screen_id == CRAFTING_TABLE_SCREEN_ID:
         return CRAFTING_TABLE_GRID_SIDE
     return PLAYER_GRID_SIDE
+
+
+#: How many distinct spots the run's own place spoor carries (`recent_places`). Small on
+#: purpose: it is what `move_to` may be offered against, and a walk back is a walk to a
+#: spot one of the last few steps concluded at, not a survey of everywhere the Kin has been.
+RECENT_PLACES_LIMIT: Final = 4
+
+
+def _place_of_reading(reading: WorldObservationValue | None) -> dict[str, int] | None:
+    """Where one reading says the body stood, at block granularity, or None.
+
+    The floor of x/y/z — the block the body occupied, the granularity a walk back
+    cares about — and None for every reading this cannot honestly answer: one that
+    did not carry a position (absence is not the origin), or a coordinate that is
+    not finite or outside the world's own span, which nothing the client reports
+    can be. The same span `move_to` itself refuses targets beyond, so a place this
+    carries is always a place that skill could be asked to walk to.
+    """
+
+    x = reading.self_state.x if reading is not None else None
+    y = reading.self_state.y if reading is not None else None
+    z = reading.self_state.z if reading is not None else None
+    if x is None or y is None or z is None:
+        return None
+    if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+        return None
+    place = {"x": math.floor(x), "y": math.floor(y), "z": math.floor(z)}
+    if any(abs(value) > MOVETO_MAX_COORDINATE for value in place.values()):
+        return None
+    return place
 
 
 def owed_steps(
@@ -1316,6 +1347,13 @@ class PlayerMind:
     recent_results: list[dict[str, object]] = field(
         default_factory=list[dict[str, object]], init=False
     )
+    #: The distinct spots the run's own recent steps concluded at, newest last — the
+    #: place spoor the `move_to` offer is gated on. Same-spot consecutive steps refresh
+    #: the newest row instead of repeating coordinates, so standing at one bench to
+    #: craft is one place, not six.
+    recent_places: list[dict[str, object]] = field(
+        default_factory=list[dict[str, object]], init=False
+    )
 
     def __post_init__(self) -> None:
         if self.persona is not None and self.persona.kin_id != self.kin_id:
@@ -1508,6 +1546,23 @@ class PlayerMind:
 
     def feasible_skills(self, reading: WorldObservationValue) -> tuple[str, ...]:
         feasible = feasible_skill_ids(self.goal, reading)
+        # The deliberate exclusion lifted (runbook 六之四十七): `move_to` was kept off
+        # the offer because "listing it before there is anywhere to walk invites the
+        # model to compose coordinates". The offer is the gate that keeps that reason
+        # true — it appears only when the run's own place spoor carries at least one
+        # spot, so the coordinates it may name are real readings of the Kin's own past
+        # positions. A body that can walk (alive, no window standing, a reading that
+        # says where it stands) is the rest of the precondition: the executor would
+        # refuse the others by name, and an offer whose first touch is a named refusal
+        # spends a step to say nothing.
+        if (
+            self.recent_places
+            and reading.self_state.alive
+            and not screen_open(reading)
+            and reading.self_state.x is not None
+            and reading.self_state.z is not None
+        ):
+            feasible = (*feasible, "move_to")
         if self.craft_knowledge is None:
             return feasible
         added = [name for name in feasible if name != "craft_take_result"]
@@ -1620,9 +1675,12 @@ class PlayerMind:
         # rather than strands the run. Speech is not a redirect — the turn to change the
         # aim is — so the alternative must be a skill that acts on the world, not merely
         # a name in the offer: counting `say` here would withhold the re-aim retry from
-        # the rule order on the strength of an utterance it cannot make.
+        # the rule order on the strength of an utterance it cannot make. `move_to` is
+        # counted the same way, and for the same reason: the rule order cannot pick it
+        # either (walking to a remembered spot is the model's judgement), so it must not
+        # withhold the rules' own retry on the strength of a skill they cannot fill.
         if (
-            any(name not in ("use_target", "say") for name in feasible)
+            any(name not in ("use_target", "say", "move_to") for name in feasible)
             and "use_target" in feasible
             and self.last_use_aim is not None
             and use_target_signature(reading) == self.last_use_aim
@@ -1635,14 +1693,16 @@ class PlayerMind:
         # curated roster never narrows what the model is shown or may choose; it teaches
         # only the rule order (and the imminent-protection gate) which bodies to flinch from.
         #
-        # The rule order additionally has no words to say: nothing in a reading a line could
-        # be derived from, so `_rule_arguments` could not build `say`'s ask, and a deterministic
-        # order that picked it would pick a skill it cannot fill. A rules run therefore never
-        # speaks; the model's offer above keeps the skill, because whether and what to say is
-        # exactly the judgement the model exists for.
+        # The rule order additionally cannot fill two of the asks: `say` (nothing in a
+        # reading a line could be derived from) and `move_to` (which remembered spot is
+        # worth walking back to is a judgement, not a fact of the reading) — a
+        # deterministic order that picked either would pick a skill whose ask it cannot
+        # build. A rules run therefore never speaks and never walks to a chosen spot;
+        # the model's offer above keeps both, because whether and what to say, and
+        # where to return, are exactly the judgement the model exists for.
         local_feasible = feasible
         if self.policy is DecisionPolicy.RULES:
-            local_feasible = tuple(name for name in feasible if name != "say")
+            local_feasible = tuple(name for name in feasible if name not in ("say", "move_to"))
         if threat is not None:
             local_feasible = tuple(name for name in local_feasible if name not in DANGER_SUPPRESSED)
         if not local_feasible and self.policy is DecisionPolicy.RULES:
@@ -1730,6 +1790,12 @@ class PlayerMind:
                     # chosen from the plan instead of from one remembered source item.
                     summary["missing_raw"] = dict(missing)
         summary["recent_actions"] = list(self.recent_results)
+        if self.recent_places:
+            # The spots the run's own steps just concluded at, newest last, each one
+            # read from the Kin's own position when that step's verdict was taken — the
+            # only coordinates this run can honestly offer `move_to`. Present only when
+            # there is at least one: an empty list would invite a walk with no destination.
+            summary["recent_places"] = [dict(entry) for entry in self.recent_places]
         summary["view_search"] = self._view_search_summary(reading)
         if threat is not None:
             summary["danger"] = threat
@@ -1917,6 +1983,24 @@ class PlayerMind:
             }
         )
         del self.recent_results[:-6]
+        # The place spoor: where this step concluded, read from `reading_after` — the
+        # same reading the step's verdict was taken on, so the row's spot is the spot
+        # the outcome happened at. A reading that did not carry a position owes no row
+        # (absence is not the origin), and a step landing on the newest row's spot
+        # refreshes that row rather than repeating coordinates.
+        reading_place = _place_of_reading(reading_after)
+        if reading_place is not None and reading_after is not None:
+            place_row: dict[str, object] = {
+                "skill": intent.skill,
+                "result": outcome.result.value,
+                "place": reading_place,
+                "game_tick": reading_after.game_tick,
+            }
+            if self.recent_places and self.recent_places[-1].get("place") == reading_place:
+                self.recent_places[-1] = place_row
+            else:
+                self.recent_places.append(place_row)
+                del self.recent_places[:-RECENT_PLACES_LIMIT]
         if (
             intent.skill == "use_target"
             and outcome.result is ActionResultClass.CONFIRMED
@@ -2408,6 +2492,24 @@ class PlayerMind:
                 SkillPlan((SkillCall(name=CLOSE_SCREEN),)),
                 "leave the open screen so the world can be acted on again",
                 {},
+            )
+        if skill == "move_to":
+            # The spot is the ask: the answer names x/z and this branch honours those
+            # coordinates exactly — the executor's own checks (finiteness, world span,
+            # a standing screen, the 64-block errand bound, arrival) are the skill's
+            # preconditions, and the offer gate already kept the case where there is
+            # nowhere to walk off this list. What this does not do is substitute a
+            # target: a missing coordinate is refused by name rather than filled from
+            # the spoor, because which remembered spot to revisit is the ask's choice
+            # and never this side's.
+            asked_x = _asked_number(arguments, "x")
+            asked_z = _asked_number(arguments, "z")
+            if asked_x is None or asked_z is None:
+                return None, SKILL_ARGUMENT_MISSING, {}
+            return (
+                SkillPlan((SkillCall(name="move_to", x=asked_x, z=asked_z),)),
+                "walk to a remembered spot",
+                {"x": asked_x, "z": asked_z},
             )
         self.scan_step += 1
         yaw = _asked_number(arguments, "yaw_degrees")

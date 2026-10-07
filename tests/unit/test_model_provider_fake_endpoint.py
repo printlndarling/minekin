@@ -775,7 +775,12 @@ def test_the_instruction_asks_for_arguments_and_forbids_inventing_a_name() -> No
     model that invents an item, a recipe or a slot has to be told not to before it answers."""
 
     assert '"arguments"' in SYSTEM_PROMPT
-    for forbidden in ("no item the request did not name", "the feasible list"):
+    for forbidden in (
+        "no item the request did not name",
+        "the feasible list",
+        # The place spoor's rule: move_to may only name a spot the summary gave.
+        "may only name a spot that a recent_places row gives",
+    ):
         assert forbidden in SYSTEM_PROMPT
 
 

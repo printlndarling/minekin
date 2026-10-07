@@ -46,6 +46,7 @@ from minekin_core.application.player_mind import (
     FailureCode,
     MindDecisionKind,
     PlayerMind,
+    _place_of_reading,  # pyright: ignore[reportPrivateUsage]
     attribute_failure,
     blocker_for,
     craft_blocker,
@@ -3252,3 +3253,206 @@ def test_the_document_carries_the_newest_model_call_redacted_diagnostics() -> No
 
     fresh, _ = mind_with()
     assert fresh.as_document()["last_model_call"] is None
+
+
+# ------------------------------------------------------- the place spoor and the move_to offer
+
+
+def _self_at(x: float, y: float, z: float, *, alive: bool = True) -> SelfStateValue:
+    return SelfStateValue(
+        health=20.0,
+        max_health=20.0,
+        food=20,
+        saturation=5.0,
+        alive=alive,
+        x=x,
+        y=y,
+        z=z,
+        yaw_degrees=0.0,
+        pitch_degrees=0.0,
+    )
+
+
+def test_a_readings_place_is_the_block_it_stood_in_or_nothing() -> None:
+    """The extraction the spoor takes from a reading: floored to the block the body
+    occupied (negative coordinates floor away from zero, the block a player would
+    name), and None for every reading that cannot honestly answer — no position,
+    a non-finite one, or one beyond the world's own span, which is also move_to's
+    own bound, so a place carried from a reading is always one it could walk to."""
+
+    assert _place_of_reading(reading(self_state=_self_at(64.2, 63.0, -7.7))) == {
+        "x": 64,
+        "y": 63,
+        "z": -8,
+    }
+    assert _place_of_reading(None) is None
+    bare = SelfStateValue(health=20.0, max_health=20.0, food=20, saturation=5.0, alive=True)
+    assert _place_of_reading(reading(self_state=bare)) is None
+    assert _place_of_reading(reading(self_state=_self_at(math.inf, 64.0, 0.0))) is None
+    assert _place_of_reading(reading(self_state=_self_at(40_000_000.0, 64.0, 0.0))) is None
+
+
+def test_a_recorded_step_leaves_a_floored_place_row_from_its_verdict_reading() -> None:
+    """Every concluded step owes one row about where it happened, read from the same
+    reading its verdict was taken on — the spot the outcome is anchored to — and the
+    summary carries the spoor only once there is a row to carry."""
+
+    mind, _ = mind_with(
+        Decision(skill_id="turn_to", reason="look", intent_generation=1),
+        Decision(skill_id="turn_to", reason="look again", intent_generation=2),
+        policy=DecisionPolicy.MODEL,
+    )
+    provider = cast(ScriptedProvider, mind.provider)
+    intent = mind.next_intent(reading(self_state=_self_at(64.2, 63.0, -7.7)))
+    assert "recent_places" not in cast(dict[str, object], provider.requests[-1].observation_summary)
+    mind.record_result(
+        intent,
+        outcome(ActionResultClass.CONFIRMED),
+        reading(tick=120, self_state=_self_at(64.9, 63.0, -7.1)),
+    )
+    mind.next_intent(reading(tick=140, self_state=_self_at(64.9, 63.0, -7.1)))
+    places = cast(
+        list[dict[str, object]],
+        provider.requests[-1].observation_summary["recent_places"],
+    )
+    assert places == [
+        {
+            "skill": intent.skill,
+            "result": "CONFIRMED",
+            "place": {"x": 64, "y": 63, "z": -8},
+            "game_tick": 120,
+        }
+    ]
+
+
+def test_a_step_on_the_newest_spot_refreshes_the_row_and_the_spoor_stays_bounded() -> None:
+    """Standing at one spot to work is one place, not six: a step landing on the
+    newest row's spot refreshes that row (the newest word about it), and the spoor
+    keeps only the last few distinct spots — a walk back is a walk to a recent spot,
+    not a survey of everywhere the Kin has been."""
+
+    mind, _ = mind_with(
+        *(
+            Decision(skill_id="turn_to", reason="look", intent_generation=index)
+            for index in range(1, 8)
+        ),
+        policy=DecisionPolicy.MODEL,
+    )
+    provider = cast(ScriptedProvider, mind.provider)
+    spots = [
+        (0.0, 64.0, 0.0),
+        (10.0, 64.0, 0.0),
+        (20.0, 64.0, 0.0),
+        (30.0, 64.0, 0.0),
+        (40.0, 64.0, 0.0),
+    ]
+    for index, (x, y, z) in enumerate(spots):
+        intent = mind.next_intent(reading(tick=100 + index, self_state=_self_at(x, y, z)))
+        mind.record_result(
+            intent,
+            outcome(ActionResultClass.CONFIRMED),
+            reading(tick=200 + index, self_state=_self_at(x, y, z)),
+        )
+    same = mind.next_intent(reading(tick=300, self_state=_self_at(40.0, 64.0, 0.0)))
+    mind.record_result(
+        same,
+        outcome(ActionResultClass.UNKNOWN),
+        reading(tick=301, self_state=_self_at(40.0, 64.0, 0.0)),
+    )
+    mind.next_intent(reading(tick=302, self_state=_self_at(40.0, 64.0, 0.0)))
+    places = cast(
+        list[dict[str, object]],
+        provider.requests[-1].observation_summary["recent_places"],
+    )
+    assert [row["place"] for row in places] == [
+        {"x": 10, "y": 64, "z": 0},
+        {"x": 20, "y": 64, "z": 0},
+        {"x": 30, "y": 64, "z": 0},
+        {"x": 40, "y": 64, "z": 0},
+    ]
+    assert places[-1]["result"] == "UNKNOWN"
+    assert places[-1]["game_tick"] == 301
+
+
+def test_a_step_whose_reading_carried_no_position_owes_no_place_row() -> None:
+    """Absence is not the origin: a reading without x/y/z leaves the spoor as it
+    was rather than planting a row at (0, 0)."""
+
+    mind, _ = mind_with(
+        Decision(skill_id="turn_to", reason="look", intent_generation=1),
+        Decision(skill_id="turn_to", reason="read the summary", intent_generation=2),
+        policy=DecisionPolicy.MODEL,
+    )
+    provider = cast(ScriptedProvider, mind.provider)
+    bare = SelfStateValue(health=20.0, max_health=20.0, food=20, saturation=5.0, alive=True)
+    intent = mind.next_intent(reading(self_state=bare))
+    mind.record_result(
+        intent,
+        outcome(ActionResultClass.CONFIRMED),
+        reading(tick=120, self_state=bare),
+    )
+    assert mind.recent_places == []
+    mind.next_intent(reading(tick=130, self_state=bare))
+    assert "recent_places" not in cast(dict[str, object], provider.requests[-1].observation_summary)
+
+
+def test_move_to_is_offered_only_once_the_run_has_a_place_to_walk_to() -> None:
+    """The lift of the deliberate exclusion (runbook 六之四十七): move_to appears in
+    the offer exactly when the run's own spoor carries a spot — somewhere real the
+    coordinates could name — and the walk it then asks for carries those x/z."""
+
+    mind, _ = mind_with(
+        Decision(skill_id="turn_to", reason="look around", intent_generation=1),
+        Decision(
+            skill_id="move_to",
+            reason="walk back to the bench",
+            intent_generation=2,
+            arguments={"x": 64, "z": -8},
+        ),
+        policy=DecisionPolicy.MODEL,
+    )
+    cold = reading(self_state=_self_at(64.9, 63.0, -7.1))
+    assert "move_to" not in mind.feasible_skills(cold)
+    first = mind.next_intent(cold)
+    assert first.skill == "turn_to"
+    mind.record_result(
+        first,
+        outcome(ActionResultClass.CONFIRMED),
+        reading(tick=150, self_state=_self_at(64.9, 63.0, -7.1)),
+    )
+    warm = reading(tick=160, self_state=_self_at(64.9, 63.0, -7.1))
+    assert "move_to" in mind.feasible_skills(warm)
+    walked = mind.next_intent(warm)
+    assert walked.skill == "move_to"
+    assert walked.plan.calls[0].x == 64.0
+    assert walked.plan.calls[0].z == -8.0
+
+
+def test_the_move_to_offer_waits_for_a_body_that_can_walk() -> None:
+    """Even with the spoor warm, a dead body, a standing window, or a reading that
+    does not say where the Kin stands keeps move_to off the offer — its first touch
+    would otherwise be a named refusal spending a step to say nothing."""
+
+    mind, _ = mind_with(
+        Decision(skill_id="turn_to", reason="look", intent_generation=1),
+        policy=DecisionPolicy.MODEL,
+    )
+    spot = _self_at(5.0, 64.0, 5.0)
+    first = mind.next_intent(reading(self_state=spot))
+    mind.record_result(
+        first,
+        outcome(ActionResultClass.CONFIRMED),
+        reading(tick=150, self_state=spot),
+    )
+    assert "move_to" in mind.feasible_skills(reading(tick=160, self_state=spot))
+    assert "move_to" not in mind.feasible_skills(
+        reading(tick=160, self_state=_self_at(5.0, 64.0, 5.0, alive=False))
+    )
+    windowed = reading(
+        tick=160,
+        self_state=spot,
+        gui=GuiScreenValue(screen_id="minecraft:crafting", sync_id=1),
+    )
+    assert "move_to" not in mind.feasible_skills(windowed)
+    bare = SelfStateValue(health=20.0, max_health=20.0, food=20, saturation=5.0, alive=True)
+    assert "move_to" not in mind.feasible_skills(reading(tick=160, self_state=bare))
