@@ -23,6 +23,7 @@ from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.session_log import PLAYER_CHAT_OBSERVED
 from minekin_core.application.ports.event_store import JsonValue, payload_digest
 from minekin_core.domain.errors import MinekinError
+from minekin_core.domain.events import EventSource, TrustClass
 
 #: How many ledger rows one recall may scan, and how many records one packet may
 #: carry. Bounded like the sibling retrievers: a decision input, not an archive.
@@ -117,6 +118,13 @@ def _record(row: sqlite3.Row) -> dict[str, object] | None:
     matched exactly by the caller, never normalised.
     """
 
+    # A matching account and payload digest establish neither who observed a line
+    # nor its kind. Only the live chat writer's provenance is player testimony.
+    if (
+        row["source"] != EventSource.BRIDGE.value
+        or row["trust_class"] != TrustClass.PLAYER_CHAT.value
+    ):
+        return None
     text = row["payload_json"]
     if not isinstance(text, str) or len(text) > 4096:
         return None

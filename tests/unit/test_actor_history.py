@@ -15,6 +15,8 @@ import sqlite3
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from minekin_core.adapters.sqlite.actor_history import (
     RECORD_LIMIT,
     SCAN_LIMIT,
@@ -159,3 +161,26 @@ def test_the_recall_is_scoped_by_kin_and_can_exclude_a_run(tmp_path: Path) -> No
 
     records = cast("list[dict[str, object]]", packet["records"])
     assert [record["run_id"] for record in records] == ["old-run"]
+
+
+@pytest.mark.parametrize(
+    ("source", "trust_class"),
+    [("CORE", "PLAYER_CHAT"), ("BRIDGE", "MODEL_SUGGESTED"), ("BRIDGE", "CORE")],
+)
+def test_a_valid_digest_does_not_turn_other_provenance_into_player_testimony(
+    tmp_path: Path, source: str, trust_class: str
+) -> None:
+    database = _database(tmp_path)
+    _chat(database, run_id="real-chat", text="heard through the client")
+    _chat(database, run_id="other-source", text="not a player observation")
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE event SET source=?,trust_class=? WHERE run_id=?",
+            (source, trust_class, "other-source"),
+        )
+    before = database.read_bytes()
+    packet = recall_actor_history(database, kin_id="kin-one", sender_id=KEY)
+    records = cast("list[dict[str, object]]", packet["records"])
+    assert [record["run_id"] for record in records] == ["real-chat"]
+    assert packet["skipped_unreadable"] == 1
+    assert database.read_bytes() == before
