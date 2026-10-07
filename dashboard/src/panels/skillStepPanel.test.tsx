@@ -16,6 +16,41 @@ function snapshotFrom(wire: Record<string, unknown>, source: "mock" | "gateway")
 }
 
 describe("技能步面板：known 组逐成员、缺组具名、绝不折叠成 0 步", () => {
+  it("主要结论常驻，诊断记录默认折叠且不丢原始字段", () => {
+    render(<SkillStepPanel snapshot={snapshotFrom(buildMockBundle("healthy_run_07", NOW).snapshot, "mock")} />);
+    const details = screen.getByText("诊断与记录详情").closest("details");
+    expect(details).not.toHaveAttribute("open");
+    expect(details).toContainElement(screen.getByTestId("skill-step-行为参数"));
+    expect(details).not.toContainElement(screen.getByTestId("skill-step-实际结果"));
+    expect(details).not.toContainElement(screen.getByTestId("skill-step-决策来源"));
+  });
+
+  it("材料缺失仅给读数解释，不承诺自动采集或重试成功", () => {
+    const wire = buildMockBundle("healthy_run_07", NOW).snapshot;
+    const value = (wire.skillSteps as Record<string, unknown>).value as Record<string, unknown>;
+    value.result = { value: "FAILED" };
+    value.reason = { value: "CRAFT_MATERIALS_MISSING" };
+    render(<SkillStepPanel snapshot={snapshotFrom(wire, "gateway")} />);
+    expect(screen.getByTestId("skill-step-结果原因")).toHaveTextContent("CRAFT_MATERIALS_MISSING");
+    expect(screen.getByTestId("skill-step-reading-guidance")).toHaveTextContent("最近库存不足");
+    expect(screen.getByTestId("skill-step-reading-guidance")).toHaveTextContent("不代表当前仍然缺料");
+    expect(screen.queryByRole("button", { name: /重试|采集/ })).toBeNull();
+  });
+
+  it("未识别原因和已确认结果都不猜补操作建议", () => {
+    const wire = buildMockBundle("healthy_run_07", NOW).snapshot;
+    const value = (wire.skillSteps as Record<string, unknown>).value as Record<string, unknown>;
+    value.result = { value: "UNKNOWN" };
+    value.reason = { value: "FUTURE_UNKNOWN_REASON" };
+    const view = render(<SkillStepPanel snapshot={snapshotFrom(wire, "gateway")} />);
+    expect(screen.getByTestId("skill-step-结果原因")).toHaveTextContent("FUTURE_UNKNOWN_REASON");
+    expect(screen.queryByTestId("skill-step-reading-guidance")).toBeNull();
+    value.result = { value: "CONFIRMED" };
+    value.reason = { value: "CRAFT_MATERIALS_MISSING" };
+    view.rerender(<SkillStepPanel snapshot={snapshotFrom(wire, "gateway")} />);
+    expect(screen.queryByTestId("skill-step-reading-guidance")).toBeNull();
+  });
+
   it("心智输入来源原样展示，但不声称模型采纳或历史已松键", () => {
     const wire = buildMockBundle("healthy_run_07", NOW).snapshot;
     const group = wire.skillSteps as Record<string, unknown>;

@@ -41,6 +41,18 @@ const REASON_LABELS: Record<string, string> = {
   SCREEN_STILL_OPEN: "窗口仍未关闭",
   GUI_CONFLICT: "当前窗口占用输入",
   DEADLINE_EXCEEDED: "输入授权期限已到",
+  CRAFT_MATERIALS_MISSING: "最近库存不足，未发送合成点击",
+  CRAFT_SCREEN_UNSUPPORTED: "当前容器没有已支持的合成槽位布局",
+  SCREEN_NOT_CONFIRMED: "未确认同一个合成界面，停止后续点击",
+};
+
+// Explanations of recorded outcomes, not new action plans or current-world claims.
+const READING_GUIDANCE: Readonly<Record<string, string>> = {
+  CRAFT_MATERIALS_MISSING: "该步读取的最近库存不足，不代表当前仍然缺料。先核对当前背包与模型要求的材料；本面板不会代为采集或重发点击。",
+  CRAFT_SCREEN_UNSUPPORTED: "该步遇到未支持的容器布局，程序没有猜槽位。核对当时打开的界面；不要把反复启动当作已具备该容器能力。",
+  SCREEN_NOT_CONFIRMED: "该步没有确认原合成窗口仍有效，后续点击已停止。查看最新界面与库存；结果未知不等于产物丢失，也不授权重放。",
+  NO_CONFIRMING_OBSERVATION: "在该步的等待期限内没有确认效果。先核对最新连接与世界读数；不能据此认定动作从未发生或直接重放。",
+  SESSION_STOP_REQUESTED: "该步被停止请求中断。请另外核对会话收尾与松键回执；此结论本身不证明输入已释放。",
 };
 
 function memberLabel<T>(field: Field<T>): string {
@@ -118,6 +130,9 @@ export function SkillStepPanel({ snapshot }: SkillStepPanelProps) {
   const group = snapshot.skillSteps;
   const refusal =
     isKnown(group) && "value" in group.value.modelRefusal ? group.value.modelRefusal.value : null;
+  const readingGuidance = isKnown(group)
+    && "value" in group.value.result && ["FAILED", "UNKNOWN", "INTERRUPTED"].includes(group.value.result.value)
+    && "value" in group.value.reason ? READING_GUIDANCE[group.value.reason.value] : undefined;
   return (
     <Panel
       title="技能步读数（逐行来自台账 SkillStepRecorded）"
@@ -131,12 +146,17 @@ export function SkillStepPanel({ snapshot }: SkillStepPanelProps) {
           <MemberRow label="技能" field={group.value.skill} />
           <MemberRow label="实际结果" field={group.value.result} gloss={(v) => RESULT_LABELS[v] ?? v} />
           <MemberRow label="结果原因" field={group.value.reason} gloss={(v) => REASON_LABELS[v] ?? v} />
-          <MemberRow label="失败归因" field={group.value.attribution} />
           <MemberRow
             label="决策来源"
             field={group.value.decisionSource}
             gloss={(v) => SOURCE_LABELS[v] ?? v}
           />
+          {readingGuidance ? <p className={styles.panelNote} data-testid="skill-step-reading-guidance">
+            读数解释：{readingGuidance}
+          </p> : null}
+          <details>
+          <summary>诊断与记录详情</summary>
+          <MemberRow label="失败归因" field={group.value.attribution} />
           <MemberRow label="模型拒止" field={group.value.modelRefusal} />
           <CountRow label="技能步数" field={group.value.stepCount} format={(v) => `${v} 步`} />
           <MemberRow label="调用花费" field={group.value.modelCost} />
@@ -148,6 +168,7 @@ export function SkillStepPanel({ snapshot }: SkillStepPanelProps) {
           <p className={styles.panelNote} data-testid="skill-step-source-note">
             决策来源是 Core 记录的原始 token，本面板只加中文注释。local_reflection 表示这一步由本地代码执行：可能是紧迫安全保护（例如挨打时撤离一步）、规则策略（rules）的决策，或旧实现的隐式失败回退；该台账行不携带当时选择的决策模式，历史不能判定——不以今天的保存配置、本次启动读数倒推历史。
           </p>
+          </details>
           {refusal === "MODEL_NOT_CONFIGURED" ? (
             <p className={styles.panelNote} data-testid="skill-step-model-guidance">
               模型未配置：请在「配置 · 模型与目标」页填写模型连接后重试；当前构建按 MODEL_NOT_CONFIGURED 具名停止，不会自动切换到规则策略；历史运行是否如此没有记录，不做推断。
