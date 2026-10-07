@@ -229,6 +229,18 @@ def _decision_invalidation(
     return ""
 
 
+def _session_ending(skills: WorldSkills) -> tuple[str, str] | None:
+    """A stop owns the remaining turn; no further model decision can revive it."""
+    try:
+        skills.check_interruption("")
+    except SessionStopRequested:
+        return "SESSION_STOP_REQUESTED", ""
+    gone = skills.client_exit_code()
+    if gone is not None:
+        return CLIENT_EXITED, str(gone)
+    return None
+
+
 async def run_autonomous_loop(
     *,
     mind: PlayerMind,
@@ -255,6 +267,11 @@ async def run_autonomous_loop(
     asked_on = ""
     for _ in range(step_budget):
         stop_reason = STEP_BUDGET_SPENT
+        ending = _session_ending(skills)
+        if ending is not None:
+            mind.observe(observations.latest)
+            stop_reason, stop_detail = ending
+            break
         reading = observations.latest
         if (
             reading is not None
@@ -293,6 +310,11 @@ async def run_autonomous_loop(
         # event loop for its full `timeout_ms`, starving the IPC reader and the stop-request
         # watcher alike — which is how a cooperative release became a forced SIGTERM (exit 143).
         intent = await asyncio.to_thread(mind.next_intent, reading)
+        ending = _session_ending(skills)
+        if ending is not None:
+            mind.observe(observations.latest)
+            stop_reason, stop_detail = ending
+            break
         if intent.kind is not MindDecisionKind.INTENT:
             current = observations.latest
             mind.observe(current)
@@ -358,6 +380,13 @@ async def run_autonomous_loop(
         # attribution, but conclude the run from the body's current observation.
         current = observations.latest
         mind.observe(current)
+        ending = _session_ending(skills)
+        if ending is not None:
+            stop_reason, stop_detail = ending
+            break
+        if outcome.reason == "SESSION_STOP_REQUESTED":
+            stop_reason = outcome.reason
+            break
         if intent.skill == "respawn" and outcome.result is not ActionResultClass.CONFIRMED:
             stop_reason = outcome.reason or "RESPAWN_NOT_CONFIRMED"
             break

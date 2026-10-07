@@ -1371,6 +1371,83 @@ def test_respawn_button_wait_obeys_session_lifecycle(interruption: str) -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("moment", ["before", "decision", "report"])
+@pytest.mark.parametrize("ending", ["stop", "exit"])
+def test_session_ending_prevents_another_model_decision(moment: str, ending: str) -> None:
+    from minekin_core.application.world_skills import SessionStopRequested
+
+    ended = moment == "before"
+    requests: list[DecisionRequest] = []
+
+    class Provider:
+        def decide(self, request: DecisionRequest) -> Decision:
+            nonlocal ended
+            requests.append(request)
+            assert len(requests) == 1, "the ended session must not buy another decision"
+            if moment == "decision":
+                ended = True
+            return Decision(
+                skill_id="turn_to",
+                reason="look around",
+                intent_generation=1,
+                arguments={"yaw_degrees": 40.0, "pitch_degrees": 0.0},
+            )
+
+    class LifecycleSkills(TapeSkills):
+        def check_interruption(self, action_id: str) -> None:
+            if ended and ending == "stop":
+                raise SessionStopRequested(action_id=action_id)
+            super().check_interruption(action_id)
+
+        def client_exit_code(self) -> int | None:
+            return -9 if ended and ending == "exit" else None
+
+    async def report(step: AutonomousStep) -> None:
+        nonlocal ended
+        ended = True
+
+    stage = Stage(reading(), reading(tick=120), reading(tick=140))
+    skills = LifecycleSkills(stage, {"turn_to": confirmed()})
+    result = asyncio.run(
+        run_autonomous_loop(
+            mind=mind_for(Provider(), CostLedger(run_cost_cap=CAP), goal=None),
+            skills=skills,
+            observations=stage,
+            authority=AUTHORITY,
+            step_budget=2,
+            on_step=report if moment == "report" else None,
+        )
+    )
+    assert len(requests) == (0 if moment == "before" else 1)
+    assert len(skills.ran) == (1 if moment == "report" else 0)
+    assert len(result.steps) == (1 if moment == "report" else 0)
+    assert result.stop_reason == ("SESSION_STOP_REQUESTED" if ending == "stop" else CLIENT_EXITED)
+    assert result.stop_detail == ("" if ending == "stop" else "-9")
+
+
+def test_an_interrupted_step_ends_the_turn_even_if_the_stop_signal_was_consumed() -> None:
+    stage = Stage(reading(), reading(tick=120), reading(tick=140))
+    stopped = SkillOutcome(
+        result=ActionResultClass.INTERRUPTED,
+        reason="SESSION_STOP_REQUESTED",
+        action_id="in-flight",
+    )
+    skills = TapeSkills(stage, {"turn_to": stopped})
+    result = asyncio.run(
+        run_autonomous_loop(
+            mind=off_mind(),
+            skills=skills,
+            observations=stage,
+            authority=AUTHORITY,
+            step_budget=2,
+        )
+    )
+    assert len(skills.ran) == 1
+    assert len(result.steps) == 1
+    assert result.steps[0].outcome is stopped
+    assert result.stop_reason == "SESSION_STOP_REQUESTED"
+
+
 def test_the_loop_steps_away_from_a_visible_slime_that_just_hit() -> None:
     """The retreat path end to end through the loop: a slime in sight with a fresh hit on
     the body makes the mind leave before anything else, and the reading after the step has
