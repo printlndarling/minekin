@@ -1448,6 +1448,141 @@ def test_an_interrupted_step_ends_the_turn_even_if_the_stop_signal_was_consumed(
     assert result.stop_reason == "SESSION_STOP_REQUESTED"
 
 
+@pytest.mark.parametrize("confirmed_craft", [False, True])
+def test_model_craft_runs_real_skills_through_workbench_deposit_and_cleanup(
+    confirmed_craft: bool,
+) -> None:
+    """A controlled provider and observation transport exercise the actual executors.
+
+    This is not a live model or game: unlike the skill tape, it does check the
+    emitted recipe, workbench slot, selection and close messages end to end.
+    """
+    from minekin_core.domain.control_vocabulary import (
+        GUI_CLICK_INPUT_TYPE,
+        HOTBAR_SELECT_INPUT_TYPE,
+        SCREEN_INPUT_TYPE,
+    )
+    from minekin_core.generated.minekin.v1 import control_pb2
+
+    async def scenario() -> None:
+        gui = GuiScreenValue(screen_id="minecraft:crafting", sync_id=7)
+        store = WorldObservationStore(expected_generation=1)
+        assert store.admit(
+            replace(
+                reading(items=((0, PLANKS, 3), (1, STICK, 2))),
+                gui=gui,
+            ),
+            (),
+        )
+        requests: list[DecisionRequest] = []
+        messages: list[tuple[str, Message]] = []
+
+        class Provider:
+            def decide(self, request: DecisionRequest) -> Decision:
+                requests.append(request)
+                if len(requests) == 1:
+                    return Decision(
+                        skill_id="craft_take_result",
+                        reason="make the tool",
+                        intent_generation=request.intent_generation,
+                        arguments={"target_item": PICKAXE, "quantity": 1},
+                    )
+                if confirmed_craft and len(requests) == 3:
+                    return Decision(
+                        skill_id="select_hotbar",
+                        reason="hold the tool",
+                        intent_generation=request.intent_generation,
+                        arguments={"slot": 0, "expected_item_id": PICKAXE},
+                    )
+                if not confirmed_craft:
+                    assert "craft_take_result" not in request.feasible_skill_ids
+                return Decision(
+                    skill_id="close_screen",
+                    reason="leave the window",
+                    intent_generation=request.intent_generation,
+                )
+
+        class Sender:
+            async def send_control(self, message_type: str, message: Message) -> None:
+                kind = message_type
+                messages.append((kind, message))
+                current = store.latest
+                assert current is not None
+                tick = current.game_tick + 20
+                if kind == GUI_CLICK_INPUT_TYPE:
+                    click = cast(control_pb2.GuiClickInput, message)
+                    assert click.sync_id == 7
+                    if click.HasField("recipe"):
+                        assert click.recipe.recipe_id == PICKAXE
+                        assert click.recipe.craft_all is False
+                        post = (
+                            replace(reading(tick=tick), gui=gui)
+                            if confirmed_craft
+                            else replace(current, game_tick=tick)
+                        )
+                    elif click.slot.mode == control_pb2.SLOT_CLICK_MODE_QUICK_MOVE:
+                        assert click.slot.slot_id == 0
+                        post = replace(reading(tick=tick), gui=gui)
+                    else:
+                        assert click.slot.slot_id == 37
+                        assert click.slot.mode == control_pb2.SLOT_CLICK_MODE_PICK
+                        post = replace(reading(tick=tick, items=((0, PICKAXE, 1),)), gui=gui)
+                elif kind == HOTBAR_SELECT_INPUT_TYPE:
+                    assert cast(control_pb2.HotbarSelectInput, message).slot == 0
+                    post = replace(
+                        current,
+                        game_tick=tick,
+                        self_state=replace(
+                            current.self_state,
+                            selected_slot=0,
+                            main_hand_item_id=PICKAXE,
+                        ),
+                    )
+                else:
+                    assert kind == SCREEN_INPUT_TYPE
+                    assert (
+                        cast(control_pb2.ScreenInput, message).control
+                        == control_pb2.SCREEN_CONTROL_CLOSE
+                    )
+                    post = replace(current, game_tick=tick, gui=None)
+                post = replace(post, inventory=replace(post.inventory, revision=tick))
+                assert store.admit(post, ())
+
+        mind = mind_for(Provider(), CostLedger(run_cost_cap=CAP), goal=GOAL)
+        result = await run_autonomous_loop(
+            mind=mind,
+            skills=WorldSkills(sender=Sender(), observations=store, capabilities=ALL_CAPABILITIES),
+            observations=store,
+            authority=AUTHORITY,
+            step_budget=3 if confirmed_craft else 2,
+            timeout_ns=30_000_000,
+        )
+        assert all(step.intent.source == "model" for step in result.steps)
+        recipe_clicks = [
+            cast(control_pb2.GuiClickInput, message)
+            for kind, message in messages
+            if kind == GUI_CLICK_INPUT_TYPE
+            and cast(control_pb2.GuiClickInput, message).HasField("recipe")
+        ]
+        assert len(recipe_clicks) == 1
+        if confirmed_craft:
+            assert result.stop_reason == GOAL_HELD_IN_HAND
+            assert mind.goal_met is True
+            assert [step.intent.skill for step in result.steps] == [
+                "craft_take_result",
+                "close_screen",
+                "select_hotbar",
+            ]
+            assert all(step.outcome.result is ActionResultClass.CONFIRMED for step in result.steps)
+        else:
+            assert result.steps[0].outcome.result is ActionResultClass.UNKNOWN
+            assert result.steps[1].intent.skill == "close_screen"
+            assert mind.goal_met is False
+        assert store.latest is not None and store.latest.gui is None
+
+    asyncio.run(scenario())
+
+
 def test_the_loop_steps_away_from_a_visible_slime_that_just_hit() -> None:
     """The retreat path end to end through the loop: a slime in sight with a fresh hit on
     the body makes the mind leave before anything else, and the reading after the step has

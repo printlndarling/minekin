@@ -226,8 +226,9 @@ def main(argv: list[str] | None = None) -> int:
         print("probe-model: source=model — a live answerer chose an honourable skill.", flush=True)
         return 0
     print(
-        f"probe-model: source={intent.source or 'unknown'} — fell back locally "
-        f"(refusal={intent.model_refusal or 'none'}); the endpoint did not yield a usable answer.",
+        f"probe-model: kind={intent.kind.value} source={intent.source or 'none'} "
+        f"reason={intent.reason or 'none'} refusal={intent.model_refusal or 'none'}; "
+        "no executable model decision was obtained.",
         file=sys.stderr,
         flush=True,
     )
