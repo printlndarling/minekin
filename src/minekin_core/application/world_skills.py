@@ -2721,24 +2721,31 @@ class WorldSkills:
                 pre_tick=pre.game_tick,
                 details={"distance_blocks": f"{distance:.2f}"},
             )
-        if distance <= MOVETO_ARRIVAL_BLOCKS:
+        steps = 0
+        jumps = 0
+
+        def arrived(current: WorldObservationValue, distance: float) -> SkillOutcome:
+            details = {
+                "target": f"{x:.2f},{z:.2f}",
+                "distance_blocks": f"{distance:.2f}",
+                "steps": str(steps),
+                "newest_checked_tick": str(current.game_tick),
+            }
+            if jumps:
+                details["jumps"] = str(jumps)
             return SkillOutcome(
                 result=ActionResultClass.CONFIRMED,
                 reason="",
                 action_id=action_id,
                 pre_tick=pre.game_tick,
-                post_tick=pre.game_tick,
-                details={
-                    "target": f"{x:.2f},{z:.2f}",
-                    "distance_blocks": f"{distance:.2f}",
-                    "steps": "0",
-                    "newest_checked_tick": str(pre.game_tick),
-                },
+                post_tick=current.game_tick,
+                details=details,
             )
+
+        if distance <= MOVETO_ARRIVAL_BLOCKS:
+            return arrived(pre, distance)
         deadline = monotonic_ns() + timeout_ns
-        steps = 0
         blocked = 0
-        jumps = 0
         current = pre
         last_distance = distance
         while steps < MOVETO_MAX_STEPS:
@@ -2763,6 +2770,40 @@ class WorldSkills:
                     post_tick=current.game_tick,
                     details={"target": f"{x:.2f},{z:.2f}", "steps": str(steps)},
                 )
+            # Turning can take several frames. Position or screen changes during
+            # that wait must be read before pressing forward.
+            latest = self._observations.latest
+            reason = (
+                "NO_LATEST_OBSERVATION"
+                if latest is None
+                else "WORLD_GENERATION_CHANGED"
+                if latest.generation != authority.generation
+                else "MOVE_SCREEN_OPEN"
+                if latest.gui is not None and latest.gui.sync_id is not None
+                else "MOVE_POSITION_UNKNOWN"
+                if _horizontal_position(latest) is None
+                else ""
+            )
+            if reason:
+                return SkillOutcome(
+                    result=ActionResultClass.FAILED,
+                    reason=reason,
+                    action_id=action_id,
+                    pre_tick=pre.game_tick,
+                    post_tick=None if latest is None else latest.game_tick,
+                )
+            assert latest is not None
+            current = latest
+            position = _horizontal_position(current)
+            assert position is not None
+            last_distance = math.hypot(x - position[0], z - position[1])
+            if last_distance <= MOVETO_ARRIVAL_BLOCKS:
+                return arrived(current, last_distance)
+            next_bearing, _ = angle_to_degrees(dx=x - position[0], dy=0.0, dz=z - position[1])
+            if not _angle_arrived(current, next_bearing, 0.0):
+                continue  # displacement changed the bearing; aim again before walking
+            if monotonic_ns() >= deadline:
+                break
             remaining_s = (deadline - monotonic_ns()) / 1_000_000_000
             step_seconds = min(
                 APPROACH_MAX_STEP_SECONDS,
@@ -2788,22 +2829,7 @@ class WorldSkills:
             px, pz = position
             now_distance = math.hypot(x - px, z - pz)
             if now_distance <= MOVETO_ARRIVAL_BLOCKS:
-                details = {
-                    "target": f"{x:.2f},{z:.2f}",
-                    "distance_blocks": f"{now_distance:.2f}",
-                    "steps": str(steps),
-                    "newest_checked_tick": str(current.game_tick),
-                }
-                if jumps:
-                    details["jumps"] = str(jumps)
-                return SkillOutcome(
-                    result=ActionResultClass.CONFIRMED,
-                    reason="",
-                    action_id=action_id,
-                    pre_tick=pre.game_tick,
-                    post_tick=current.game_tick,
-                    details=details,
-                )
+                return arrived(current, now_distance)
             if last_distance - now_distance < WALK_HOP_STALL_BLOCKS:
                 blocked += 1
             else:

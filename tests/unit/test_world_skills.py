@@ -3704,6 +3704,73 @@ def test_move_to_walks_to_the_named_place_and_confirms_by_its_own_position() -> 
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("position_known", [True, False])
+def test_move_to_rechecks_position_after_aim_before_pressing_walk(position_known: bool) -> None:
+    async def scenario() -> None:
+        store = store_with(positioned(tick=100, x=0.0, z=0.0))
+        skills, sender = skill_with(store)
+        bearing, _ = angle_to_degrees(dx=6.0, dy=0.0, dz=0.0)
+
+        def answer(message_type: str) -> None:
+            if message_type == AIM_INPUT_TYPE:
+                post = positioned(tick=110, x=6.0, z=0.0, yaw=bearing)
+                if not position_known:
+                    post = replace(
+                        post, self_state=replace(post.self_state, x=None, y=None, z=None)
+                    )
+                assert store.admit(post, ())
+
+        sender.on_send = answer
+        outcome = await skills.move_to(x=6.0, z=0.0, authority=authority(), timeout_ns=150_000_000)
+        assert [kind for kind, _ in sender.sent] == [AIM_INPUT_TYPE]
+        assert outcome.result is (
+            ActionResultClass.CONFIRMED if position_known else ActionResultClass.FAILED
+        )
+        assert outcome.reason == ("" if position_known else "MOVE_POSITION_UNKNOWN")
+        assert outcome.post_tick == 110
+        if position_known:
+            assert outcome.details["steps"] == "0"
+
+    asyncio.run(scenario())
+
+
+def test_move_to_reaims_when_displacement_changes_the_destination_bearing() -> None:
+    async def scenario() -> None:
+        store = store_with(positioned(tick=100, x=0.0, z=0.0))
+        skills, sender = skill_with(store)
+        first_bearing, _ = angle_to_degrees(dx=6.0, dy=0.0, dz=0.0)
+        next_bearing, _ = angle_to_degrees(dx=0.0, dy=0.0, dz=-6.0)
+        queued = [
+            positioned(tick=110, x=6.0, z=6.0, yaw=first_bearing),
+            positioned(tick=120, x=6.0, z=6.0, yaw=next_bearing),
+            positioned(tick=130, x=6.0, z=0.0, yaw=next_bearing),
+        ]
+
+        def answer(message_type: str) -> None:
+            if queued and message_type in (AIM_INPUT_TYPE, MOVE_INPUT_TYPE):
+                assert store.admit(queued.pop(0), ())
+
+        sender.on_send = answer
+        outcome = await skills.move_to(
+            x=6.0, z=0.0, authority=authority(), timeout_ns=3_000_000_000
+        )
+        assert outcome.result is ActionResultClass.CONFIRMED
+        assert [kind for kind, _ in sender.sent] == [
+            AIM_INPUT_TYPE,
+            AIM_INPUT_TYPE,
+            MOVE_INPUT_TYPE,
+            MOVE_INPUT_TYPE,
+        ]
+        aims = [message for kind, message in sender.sent if kind == AIM_INPUT_TYPE]
+        assert [message.yaw_degrees for message in aims] == [  # type: ignore[attr-defined]
+            first_bearing,
+            next_bearing,
+        ]
+        assert outcome.details["steps"] == "1"
+
+    asyncio.run(scenario())
+
+
 def test_move_to_concludes_by_name_on_impossible_asks_and_an_unknown_position() -> None:
     async def scenario() -> None:
         far, far_sender = skill_with(store_with(positioned(tick=100, x=0.0, z=0.0)))
