@@ -800,9 +800,10 @@ class WorldSkills:
         #: what the say skill reads for its confirmation, because speech has no
         #: world acknowledgement to conclude from.
         self._action_outcomes = action_outcomes
-        #: How many lines this run has said. A run budget, not a rate: it bounds
-        #: how much one run can put into other people's screens, and every line
-        #: inside it is still the mind's own choice.
+        #: How many say attempts this run has spent. An attempt counts even when
+        #: the line is refused or never answered, because the bound exists so a
+        #: failing send cannot loop forever — it is a run budget, not a rate, and
+        #: every line inside it is still the mind's own choice.
         self._says_sent = 0
         self._body_start: ContextVar[int | None] = ContextVar("body_start", default=None)
 
@@ -2088,7 +2089,15 @@ class WorldSkills:
     async def _await_action_outcome(
         self, action_id: str, *, timeout_ns: int
     ) -> tuple[str, str] | None:
-        """Poll the per-action registry until the Bridge answers for this id, or the window ends."""
+        """Poll the per-action registry until the Bridge answers for this id, or the window ends.
+
+        The operator's ask and the body's end are checked every turn of the wait:
+        a stop must interrupt inside this window, not after it — the same rule the
+        skill windows already follow, applied to the one wait whose only reading
+        is a registry entry. Measured (2026-10-07): with the check standing only
+        after the wait, a stop that had already been asked ran out the whole
+        window first.
+        """
 
         outcomes = self._action_outcomes
         assert outcomes is not None
@@ -2098,6 +2107,7 @@ class WorldSkills:
             outcome = outcomes.latest(action_id)
             if outcome is not None:
                 return outcome
+            self.check_interruption(action_id)
             if loop.time() >= deadline:
                 return None
             await asyncio.sleep(0.05)

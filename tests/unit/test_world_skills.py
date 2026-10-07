@@ -240,6 +240,7 @@ def skill_with(
     capabilities: frozenset[str] = ALL_CAPABILITIES,
     *,
     action_outcomes: ActionOutcomeRegistry | None = None,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> tuple[WorldSkills, RecordingSender]:
     sender = RecordingSender()
     return (
@@ -248,6 +249,7 @@ def skill_with(
             observations=store,
             capabilities=capabilities,
             action_outcomes=action_outcomes,
+            stop_requested=stop_requested,
         ),
         sender,
     )
@@ -4378,3 +4380,24 @@ def test_the_run_budget_bounds_how_much_one_run_can_say() -> None:
     assert [kind for kind in sender.types() if kind == SAY_INPUT_TYPE] == [SAY_INPUT_TYPE] * (
         SAY_BUDGET_PER_RUN
     )
+
+
+def test_a_stop_interrupts_a_say_waiting_for_its_answer() -> None:
+    """The outcome wait is the one skill window whose only reading is a registry
+    entry; the operator's ask must land inside it, not after it — the same rule
+    every other window follows. The fake sender never answers, so with the check
+    standing only after the wait this call would run the whole five-second window
+    before honouring a stop that was already standing; the bound on the clock is
+    what tells the two behaviours apart."""
+
+    skills, sender = skill_with(
+        store_with(reading()),
+        action_outcomes=ActionOutcomeRegistry(),
+        stop_requested=lambda: True,
+    )
+
+    started = time.monotonic()
+    with pytest.raises(SessionStopRequested):
+        asyncio.run(skills.say("hello", authority=authority(), timeout_ns=5_000_000_000))
+    assert time.monotonic() - started < 1.0
+    assert sender.types() == [SAY_INPUT_TYPE]
