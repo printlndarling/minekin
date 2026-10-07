@@ -1,0 +1,11 @@
+# 重生按钮等待与会话生命周期
+
+基线：`3392154`。这是代码及本地测试记录，不是游戏运行或 sealed evidence。
+
+自主循环此前在已观察到死亡、重生按钮尚不可用时，直接等待观察源最多两秒。这段等待没有检查操作者停止请求或客户端退出，可能等到超时后才继续调用模型，并把结束记成死亡。
+
+现在等待由 `WorldSkills.wait_for_respawn_availability` 管理，复用现有客户端轮询和停止检查，并在进入和返回时再次检查。停止以 `SESSION_STOP_REQUESTED` 结束；客户端退出以 `CLIENT_EXITED` 及实际退出码结束。尚未发送动作，因此不制造动作编号或步骤结果。取消会取消并等待观察任务结束。原有按钮可用性、代际变化、存活读数和最多两秒的限制保留。
+
+验证：`uv run pytest tests/unit/test_autonomous_play.py tests/unit/test_world_skills.py tests/unit/test_skill_plan.py -q`：**234 passed**。新增三项覆盖等待中停止、退出和取消，断言无模型调用、无控制输入，以及等待任务已清理；既有两项模型选择重生测试继续通过。三份改动文件的 ruff 检查、格式检查和 pyright 均通过。
+
+本机可用物理内存约 747 MiB，本轮没有启动 Minecraft 或连接远程服务器。后续仍需在具备资源的本地受控环境验证当前构建的生存与恢复；完整 A–F / S0–S11 范围未完成。

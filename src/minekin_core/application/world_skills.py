@@ -839,6 +839,36 @@ class WorldSkills:
     def supports_respawn(self) -> bool:
         return RESPAWN_CAPABILITY in self._capabilities
 
+    async def wait_for_respawn_availability(
+        self, *, authority: ActionAuthority, timeout_ns: int
+    ) -> WorldObservationValue | None:
+        """Wait for the visible death-screen button without outliving a stop or client.
+
+        No input has been sent yet, so interruption carries no action id. A dead
+        body is expected here; the operator and process checks still apply.
+        """
+        self.check_interruption("")
+        gone = self._client_exit()
+        if gone is not None:
+            raise ClientProcessExited(gone, action_id="")
+        result = await self._outlive_client(
+            self._observations.wait_until(
+                lambda latest: (
+                    latest.generation != authority.generation
+                    or latest.self_state.alive
+                    or latest.self_state.respawn_available is True
+                ),
+                timeout_s=min(timeout_ns / 1_000_000_000, 2.0),
+            ),
+            action_id="",
+            allow_dead=True,
+        )
+        self.check_interruption("")
+        gone = self._client_exit()
+        if gone is not None:
+            raise ClientProcessExited(gone, action_id="")
+        return result
+
     def supports_say(self) -> bool:
         return SAY_CAPABILITY in self._capabilities
 

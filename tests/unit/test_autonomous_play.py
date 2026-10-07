@@ -1301,6 +1301,76 @@ def test_model_selected_respawn_reobserves_the_new_life_or_stops_without_replay(
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("interruption", ["stop", "exit", "cancel"])
+def test_respawn_button_wait_obeys_session_lifecycle(interruption: str) -> None:
+    async def scenario() -> None:
+        started = asyncio.Event()
+        finished = asyncio.Event()
+        state: dict[str, bool | int | None] = {"stop": False, "exit": None}
+
+        class WaitingStore(WorldObservationStore):
+            async def wait_until(
+                self,
+                predicate: Callable[[WorldObservationValue], bool],
+                *,
+                timeout_s: float,
+            ) -> WorldObservationValue | None:
+                started.set()
+                try:
+                    return await super().wait_until(predicate, timeout_s=timeout_s)
+                finally:
+                    finished.set()
+
+        class UnusedProvider:
+            def decide(self, request: DecisionRequest) -> Decision:
+                raise AssertionError("an interrupted readiness wait must not call the model")
+
+        store = WaitingStore(expected_generation=1)
+        first = reading()
+        assert store.admit(
+            replace(
+                first,
+                self_state=replace(
+                    first.self_state, health=0, alive=False, respawn_available=False
+                ),
+            ),
+            (),
+        )
+        skills = WorldSkills(
+            sender=_NullSender(),
+            observations=store,
+            capabilities=frozenset({RESPAWN_CAPABILITY}),
+            stop_requested=lambda: state["stop"] is True,
+            client_exit=lambda: cast(int | None, state["exit"]),
+        )
+        task = asyncio.create_task(
+            run_autonomous_loop(
+                mind=mind_for(UnusedProvider(), CostLedger(run_cost_cap=CAP), goal=None),
+                skills=skills,
+                observations=store,
+                authority=AUTHORITY,
+                step_budget=1,
+                timeout_ns=2_000_000_000,
+            )
+        )
+        await asyncio.wait_for(started.wait(), 0.5)
+        if interruption == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            state[interruption] = True if interruption == "stop" else -9
+            result = await asyncio.wait_for(task, 0.5)
+            assert result.steps == ()
+            assert result.stop_reason == (
+                "SESSION_STOP_REQUESTED" if interruption == "stop" else "CLIENT_EXITED"
+            )
+            assert result.stop_detail == ("" if interruption == "stop" else "-9")
+        assert finished.is_set(), "the observation waiter must be cancelled and joined"
+
+    asyncio.run(scenario())
+
+
 def test_the_loop_steps_away_from_a_visible_slime_that_just_hit() -> None:
     """The retreat path end to end through the loop: a slime in sight with a fresh hit on
     the body makes the mind leave before anything else, and the reading after the step has

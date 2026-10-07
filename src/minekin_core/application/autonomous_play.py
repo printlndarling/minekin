@@ -50,6 +50,8 @@ from minekin_core.application.world_skills import (
     CLIENT_EXITED,
     DEFAULT_STEP_TIMEOUT_NS,
     ActionAuthority,
+    ClientProcessExited,
+    SessionStopRequested,
     WorldSkills,
 )
 from minekin_core.domain.perception import WorldObservationValue
@@ -262,14 +264,19 @@ async def run_autonomous_loop(
         ):
             # Vanilla briefly disables its death-screen buttons. Wait only for a
             # newer visible affordance, within the existing step timeout and lease.
-            await observations.wait_until(
-                lambda latest: (
-                    latest.generation != authority.generation
-                    or latest.self_state.alive
-                    or latest.self_state.respawn_available is True
-                ),
-                timeout_s=min(timeout_ns / 1_000_000_000, 2.0),
-            )
+            try:
+                await skills.wait_for_respawn_availability(
+                    authority=authority, timeout_ns=timeout_ns
+                )
+            except SessionStopRequested:
+                mind.observe(observations.latest)
+                stop_reason = "SESSION_STOP_REQUESTED"
+                break
+            except ClientProcessExited as error:
+                mind.observe(observations.latest)
+                stop_reason = CLIENT_EXITED
+                stop_detail = str(error.exit_code)
+                break
             reading = observations.latest
         if reading is not None and reading.generation != authority.generation:
             mind.observe(reading)
