@@ -32,7 +32,13 @@ test("real Gateway history reaches the identity page without rewriting past verd
   await first.getByText("事件与运行引用").click();
   await expect(first.getByText(`event=${records[0].event_id} · position=${records[0].event_position}`)).toBeVisible();
   await expect(panel).toContainText("过去结果不证明当前世界");
-  await expect(panel.getByRole("button")).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: /重放|执行/ })).toHaveCount(0);
+  // Read-side filtering is allowed; it must preserve the actual Gateway records.
+  await panel.getByRole("searchbox", { name: "搜索经历" }).fill(records[0].event_id);
+  await expect(panel.getByRole("listitem")).toHaveCount(1);
+  await expect(panel.getByRole("listitem")).toContainText(records[0].skill);
+  await panel.getByRole("button", { name: "清除经历筛选" }).click();
+  await expect(panel.getByRole("listitem")).toHaveCount(records.length);
   expect(writes).toEqual([]);
   await panel.screenshot({ path: testInfo.outputPath("experiences-real-ledger.png") });
 });
