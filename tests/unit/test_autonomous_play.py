@@ -1671,3 +1671,24 @@ def test_the_loop_swings_back_at_a_slime_in_reach_and_resumes() -> None:
     # mind invented.
     assert skills.ran[0][1] == {"swing_seconds": 0.0, "target_entity_type": ""}
     assert result.stop_reason == STEP_BUDGET_SPENT
+
+
+def test_each_step_carries_where_its_verdict_reading_put_the_body() -> None:
+    # The ledger row's place anchor is the verdict reading's own block floor — the
+    # same value the mind's spoor holds — and a reading without a position gives
+    # no place rather than the origin.
+    placed = replace(
+        reading(tick=140, items=((0, LOG, 2), (1, PLANKS, 4))),
+        self_state=replace(reading().self_state, x=12.7, y=64.0, z=-3.2),
+    )
+    stage = Stage(reading(tick=100, items=((0, LOG, 3),)), placed)
+    skills = TapeSkills(stage, {"craft_take_result": confirmed()})
+    outcome = run(stage, skills, off_mind(), step_budget=1)
+    assert outcome.steps[0].place == {"x": 12, "y": 64, "z": -4}
+
+    unplaced = Stage(
+        reading(tick=100, items=((0, LOG, 3),)),
+        reading(tick=140, items=((0, LOG, 2), (1, PLANKS, 4))),
+    )
+    skills = TapeSkills(unplaced, {"craft_take_result": confirmed()})
+    assert run(unplaced, skills, off_mind(), step_budget=1).steps[0].place is None

@@ -353,6 +353,11 @@ def test_managed_mind_reloads_prior_history_without_restoring_actions(
     commitments = cast("dict[str, object]", history.pop("commitments"))
     assert commitments["status"] == "not_retrieved"
     assert commitments["records"] == []
+    # No run here froze a server profile, so the place slice cannot name a
+    # world and carries no coordinates at all.
+    place_history = cast("dict[str, object]", history.pop("place_history"))
+    assert place_history["current_world_applicability"] == "unknown"
+    assert place_history["records"] == []
     assert history == read_last_session(target, kin_id="kin-one", exclude_run_id="current-run")
     assert first.as_document()["current_intent"] is None
     assert not first.goal_met
