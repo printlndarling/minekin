@@ -62,6 +62,9 @@
 
 - 依赖玩家聊天身份面与地标观察（S3-SOCIAL / 世界上下文契约）；先有观察才谈巩固。
 - 遗忘策略（降优先级、标记陈旧）在此切片随信念版本一起落。
+- **地点面已交付（2026-10-16，`recall_place_history`，`place-history-v1`）**：步骤行带
+  `place`，世界作用域取该 run 自己的 `AuthPolicyFrozen` profile；只携带同 profile 的坐标，
+  当前世界未命名即 `world_unknown`。人物/地点的**信念物化**仍待本切片后续。
 
 ## 4. 明确不做与仍未知
 

@@ -400,7 +400,7 @@ def crafting_grid_side(reading: WorldObservationValue) -> int:
 RECENT_PLACES_LIMIT: Final = 4
 
 
-def _place_of_reading(reading: WorldObservationValue | None) -> dict[str, int] | None:
+def place_of_reading(reading: WorldObservationValue | None) -> dict[str, int] | None:
     """Where one reading says the body stood, at block granularity, or None.
 
     The floor of x/y/z — the block the body occupied, the granularity a walk back
@@ -2016,7 +2016,7 @@ class PlayerMind:
         # the outcome happened at. A reading that did not carry a position owes no row
         # (absence is not the origin), and a step landing on the newest row's spot
         # refreshes that row rather than repeating coordinates.
-        reading_place = _place_of_reading(reading_after)
+        reading_place = place_of_reading(reading_after)
         if reading_place is not None and reading_after is not None:
             place_row: dict[str, object] = {
                 "skill": intent.skill,

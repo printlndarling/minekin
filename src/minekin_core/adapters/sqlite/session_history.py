@@ -66,7 +66,7 @@ def _recorded_input_release(connection: sqlite3.Connection, kin_id: str, run_id:
     return "released_recorded"
 
 
-def _recorded_server_profile(connection: sqlite3.Connection, kin_id: str, run_id: str) -> str:
+def recorded_server_profile(connection: sqlite3.Connection, kin_id: str, run_id: str) -> str:
     """The run's own bounded profile reference, or nothing this reader will carry.
 
     One token or the empty string: the latest CORE-attributed `AuthPolicyFrozen`
@@ -157,7 +157,7 @@ def read_last_session(
             server_profile_id = ""
             if row is not None and isinstance(row["run_id"], str):
                 input_release = _recorded_input_release(connection, kin_id, row["run_id"])
-                server_profile_id = _recorded_server_profile(connection, kin_id, row["run_id"])
+                server_profile_id = recorded_server_profile(connection, kin_id, row["run_id"])
         finally:
             connection.close()
     except (sqlite3.Error, MinekinError, OSError):

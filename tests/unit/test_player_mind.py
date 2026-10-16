@@ -46,7 +46,6 @@ from minekin_core.application.player_mind import (
     FailureCode,
     MindDecisionKind,
     PlayerMind,
-    _place_of_reading,  # pyright: ignore[reportPrivateUsage]
     attribute_failure,
     blocker_for,
     craft_blocker,
@@ -57,6 +56,7 @@ from minekin_core.application.player_mind import (
     needs_from,
     next_craft,
     observation_summary,
+    place_of_reading,
     screen_open,
     select_target,
     shortfalls,
@@ -3396,16 +3396,16 @@ def test_a_readings_place_is_the_block_it_stood_in_or_nothing() -> None:
     a non-finite one, or one beyond the world's own span, which is also move_to's
     own bound, so a place carried from a reading is always one it could walk to."""
 
-    assert _place_of_reading(reading(self_state=_self_at(64.2, 63.0, -7.7))) == {
+    assert place_of_reading(reading(self_state=_self_at(64.2, 63.0, -7.7))) == {
         "x": 64,
         "y": 63,
         "z": -8,
     }
-    assert _place_of_reading(None) is None
+    assert place_of_reading(None) is None
     bare = SelfStateValue(health=20.0, max_health=20.0, food=20, saturation=5.0, alive=True)
-    assert _place_of_reading(reading(self_state=bare)) is None
-    assert _place_of_reading(reading(self_state=_self_at(math.inf, 64.0, 0.0))) is None
-    assert _place_of_reading(reading(self_state=_self_at(40_000_000.0, 64.0, 0.0))) is None
+    assert place_of_reading(reading(self_state=bare)) is None
+    assert place_of_reading(reading(self_state=_self_at(math.inf, 64.0, 0.0))) is None
+    assert place_of_reading(reading(self_state=_self_at(40_000_000.0, 64.0, 0.0))) is None
 
 
 def test_a_recorded_step_leaves_a_floored_place_row_from_its_verdict_reading() -> None:

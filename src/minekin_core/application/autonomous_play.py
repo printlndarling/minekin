@@ -42,6 +42,7 @@ from minekin_core.application.player_mind import (
     MindIntent,
     PlayerMind,
     observation_ref,
+    place_of_reading,
     safety_need,
     screen_open,
 )
@@ -139,6 +140,11 @@ class AutonomousStep:
     outcome: SkillOutcome
     attribution: FailureCode | None
     result_ref: str
+    #: Where the body stood on the reading the verdict was taken on, at block
+    #: granularity, or None when that reading carried no honest position. The
+    #: same value the mind's own place spoor records, carried here so the ledger
+    #: row for this step can anchor it to a place a later session may recall.
+    place: Mapping[str, int] | None = None
 
     def as_document(self) -> dict[str, object]:
         return {
@@ -370,7 +376,9 @@ async def run_autonomous_loop(
         after = observations.latest
         attribution = mind.record_result(intent, outcome, after)
         result_ref = "" if after is None else observation_ref(after)
-        steps.append(AutonomousStep(intent, outcome, attribution, result_ref))
+        steps.append(
+            AutonomousStep(intent, outcome, attribution, result_ref, place_of_reading(after))
+        )
         if on_step is not None:
             # Reported as it lands rather than when the run ends: the question a reader
             # watching a long run asks is what the Kin is doing *now*, and the answer has
