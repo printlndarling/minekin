@@ -93,6 +93,7 @@ from minekin_core.adapters.sqlite.commitment_history import read_unfinished_comm
 from minekin_core.adapters.sqlite.connection import connect_reader
 from minekin_core.adapters.sqlite.goal_history import recall_goal_history
 from minekin_core.adapters.sqlite.identity_store import read_identity_root
+from minekin_core.adapters.sqlite.place_history import recall_place_history
 from minekin_core.adapters.sqlite.session_history import read_last_session
 from minekin_core.adapters.sqlite.session_log import (
     AUTH_POLICY_FROZEN,
@@ -1301,6 +1302,16 @@ def mind_for_run(
             product_id="" if goal is None else goal.product_id,
             exclude_run_id=exclude_run_id,
         )
+        # The place face: where this Kin's own steps concluded in earlier runs of
+        # the world this run is for. Scoped on the run's named profile and nothing
+        # else — a run that names no world gets `world_unknown`, never coordinates
+        # that might belong to another save.
+        session_history["place_history"] = recall_place_history(
+            kin_dir / DATABASE_NAME,
+            kin_id=kin_id,
+            current_server_profile_id=current_server_profile_id,
+            exclude_run_id=exclude_run_id,
+        )
         # Slice B's consumer: the intentions this Kin recorded and has not closed.
         # Read from the same ledger, bounded and cited; the current run's own rows
         # are included so a re-read offer shows what the Kin just promised itself.
@@ -2099,6 +2110,10 @@ async def start_and_supervise(
                     "model_usage": ModelUsageTotals.capture(mind.ledger).as_document(),
                     "product_id": _mind_step_product(step.intent),
                     "goal_product_id": "" if mind.goal is None else mind.goal.product_id,
+                    # Where the verdict's reading put the body (block floor), or null when
+                    # that reading carried no honest position. The anchor the place recall
+                    # reads; which world it belongs to is the run's own AuthPolicyFrozen.
+                    "place": None if step.place is None else dict(step.place),
                 }
             )
             if step.intent.commitment is not None:
